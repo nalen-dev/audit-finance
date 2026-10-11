@@ -1,0 +1,57 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: auditfinance-db
+    restart: always
+    environment:
+      POSTGRES_DB: ${DB_NAME:-finance_audit}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      TZ: Asia/Jakarta
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./app/api/migrations/000001_init_schema.up.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - ./app/api/migrations/000002_seed_defaults.up.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-finance_audit}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./app/api
+      dockerfile: Dockerfile
+    container_name: auditfinance-api
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8080
+      APP_ENV: production
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-finance_audit}
+      DB_SSLMODE: disable
+      JWT_SECRET: ${JWT_SECRET:-oripiofin_super_secret_jwt_key_2026_finance_audit}
+      JWT_EXPIRATION_HOURS: 72
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TZ: Asia/Jakarta
+
+  web:
+    build:
+      context: ./app/web
+      dockerfile: Dockerfile
+    container_name: auditfinance-web
+    restart: always
+    depends_on:
+      - api
+    ports:
+      - "${APP_PORT:-8085}:80"
+
+volumes:
+  postgres_data:
+    name: auditfinance_postgres_data

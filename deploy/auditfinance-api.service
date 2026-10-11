@@ -1,0 +1,18 @@
+[Unit]
+Description=OripioFin API Backend Service
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=nalendev-vps
+WorkingDirectory=/home/nalendev-vps/app/audit-finance/app/api
+ExecStart=/home/nalendev-vps/app/audit-finance/app/api/bin/server
+Restart=always
+RestartSec=5
+EnvironmentFile=/home/nalendev-vps/app/audit-finance/app/api/.env
+
+# Security sandbox
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
