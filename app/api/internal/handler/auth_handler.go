@@ -3,6 +3,7 @@ package handler
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"golang.org/x/crypto/bcrypt"
@@ -59,7 +60,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		&user.ID, &user.Email, &passwordHash, &user.FullName, &user.TelegramChatID, &user.AppMode, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if err != nil {
-		respondError(w, http.StatusUnauthorized, "Invalid email or password")
+		if err == sql.ErrNoRows {
+			respondError(w, http.StatusUnauthorized, "Email atau password salah")
+			return
+		}
+		log.Printf("[Auth] Login DB error: %v", err)
+		respondError(w, http.StatusInternalServerError, "Terjadi kesalahan pada database saat login")
 		return
 	}
 
