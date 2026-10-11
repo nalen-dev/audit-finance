@@ -76,14 +76,8 @@ export default function Login({ onSwitchToRegister }) {
         </form>
 
         <div className="pt-4 border-t border-slate-100 text-center">
-          <p className="text-xs text-slate-500">
-            Belum punya akun?{' '}
-            <button
-              onClick={onSwitchToRegister}
-              className="text-emerald-700 hover:text-emerald-800 font-semibold transition-colors"
-            >
-              Daftar sekarang
-            </button>
+          <p className="text-[11px] text-slate-400">
+            Akses privat khusus tim internal terdaftar.
           </p>
         </div>
       </div>

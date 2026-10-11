@@ -13,16 +13,18 @@ import {
 import { useAuth } from '../context/AuthContext';
 
 export default function Sidebar({ activeTab, setActiveTab, isMobileOpen = false, setIsMobileOpen = () => {} }) {
-  const { user, logout } = useAuth();
+  const { user, logout, isAuditMode } = useAuth();
 
-  const navItems = [
+  const allNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'transactions', label: 'Transaksi', icon: ArrowLeftRight },
     { id: 'wallets', label: 'Dompet / Rekening', icon: Wallet },
-    { id: 'budgets', label: 'Target Anggaran', icon: Target },
+    { id: 'budgets', label: 'Target Anggaran', icon: Target, auditOnly: true },
     { id: 'categories', label: 'Kategori', icon: Tags },
     { id: 'telegram', label: 'Integrasi Telegram', icon: Send },
   ];
+
+  const navItems = allNavItems.filter((item) => !item.auditOnly || isAuditMode);
 
   const handleNavClick = (id) => {
     setActiveTab(id);

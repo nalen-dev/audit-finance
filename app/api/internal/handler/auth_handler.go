@@ -38,70 +38,7 @@ type AuthResponse struct {
 }
 
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
-	var req RegisterRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "Invalid request body")
-		return
-	}
-
-	if req.Email == "" || req.Password == "" || req.FullName == "" {
-		respondError(w, http.StatusBadRequest, "Email, password, and full name are required")
-		return
-	}
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to hash password")
-		return
-	}
-
-	tx, err := h.db.BeginTx(r.Context(), nil)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Database transaction error")
-		return
-	}
-	defer tx.Rollback()
-
-	// 1. Insert User
-	var user model.User
-	queryUser := `
-		INSERT INTO users (email, password_hash, full_name)
-		VALUES ($1, $2, $3)
-		RETURNING id, email, full_name, telegram_chat_id, created_at, updated_at
-	`
-	err = tx.QueryRowContext(r.Context(), queryUser, req.Email, string(hash), req.FullName).Scan(
-		&user.ID, &user.Email, &user.FullName, &user.TelegramChatID, &user.CreatedAt, &user.UpdatedAt,
-	)
-	if err != nil {
-		respondError(w, http.StatusConflict, "Email already registered or database error")
-		return
-	}
-
-	// 2. Create Default Wallet ("Dompet Utama")
-	queryWallet := `
-		INSERT INTO wallets (user_id, name, type, currency, initial_balance, current_balance, color, is_default)
-		VALUES ($1, 'Dompet Utama', 'bank', 'IDR', 0, 0, '#10B981', true)
-	`
-	if _, err := tx.ExecContext(r.Context(), queryWallet, user.ID); err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to create default wallet")
-		return
-	}
-
-	if err := tx.Commit(); err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to commit transaction")
-		return
-	}
-
-	token, err := middleware.GenerateToken(user.ID, user.Email, h.cfg)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to generate token")
-		return
-	}
-
-	respondJSON(w, http.StatusCreated, AuthResponse{
-		Token: token,
-		User:  &user,
-	})
+	respondError(w, http.StatusForbidden, "Pendaftaran akun publik saat ini dinonaktifkan. Silakan hubungi administrator atau login dengan akun terdaftar.")
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -114,12 +51,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var user model.User
 	var passwordHash string
 	query := `
-		SELECT id, email, password_hash, full_name, telegram_chat_id, created_at, updated_at
+		SELECT id, email, password_hash, full_name, telegram_chat_id, app_mode, created_at, updated_at
 		FROM users
 		WHERE email = $1
 	`
 	err := h.db.QueryRowContext(r.Context(), query, req.Email).Scan(
-		&user.ID, &user.Email, &passwordHash, &user.FullName, &user.TelegramChatID, &user.CreatedAt, &user.UpdatedAt,
+		&user.ID, &user.Email, &passwordHash, &user.FullName, &user.TelegramChatID, &user.AppMode, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if err != nil {
 		respondError(w, http.StatusUnauthorized, "Invalid email or password")
@@ -152,12 +89,12 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 
 	var user model.User
 	query := `
-		SELECT id, email, full_name, telegram_chat_id, created_at, updated_at
+		SELECT id, email, full_name, telegram_chat_id, app_mode, created_at, updated_at
 		FROM users
 		WHERE id = $1
 	`
 	err := h.db.QueryRowContext(r.Context(), query, userID).Scan(
-		&user.ID, &user.Email, &user.FullName, &user.TelegramChatID, &user.CreatedAt, &user.UpdatedAt,
+		&user.ID, &user.Email, &user.FullName, &user.TelegramChatID, &user.AppMode, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if err != nil {
 		respondError(w, http.StatusNotFound, "User not found")
@@ -190,6 +127,39 @@ func (h *AuthHandler) UpdateTelegram(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Telegram chat ID updated successfully"})
+}
+
+func (h *AuthHandler) UpdateAppMode(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserIDFromContext(r.Context())
+	if !ok {
+		respondError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req struct {
+		AppMode string `json:"app_mode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.AppMode != "basic" && req.AppMode != "audit" {
+		respondError(w, http.StatusBadRequest, "App mode must be 'basic' or 'audit'")
+		return
+	}
+
+	query := `UPDATE users SET app_mode = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`
+	_, err := h.db.ExecContext(r.Context(), query, req.AppMode, userID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to update app mode")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"message":  "App mode updated successfully",
+		"app_mode": req.AppMode,
+	})
 }
 
 func respondJSON(w http.ResponseWriter, status int, data interface{}) {

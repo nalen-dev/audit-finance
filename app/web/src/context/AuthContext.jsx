@@ -41,8 +41,28 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  const updateAppMode = async (mode) => {
+    await api.updateAppMode(mode);
+    setUser((prev) => (prev ? { ...prev, app_mode: mode } : prev));
+  };
+
+  const appMode = user?.app_mode || null;
+  const isAuditMode = user?.app_mode === 'audit';
+
   return (
-    <AuthContext.Provider value={{ user, setUser, login, register, logout, loading }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        setUser,
+        login,
+        register,
+        logout,
+        loading,
+        appMode,
+        isAuditMode,
+        updateAppMode,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

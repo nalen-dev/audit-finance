@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Wallet, Menu, Sparkles } from 'lucide-react';
+import { Wallet, Menu, Sparkles, ShieldCheck, BookOpen } from 'lucide-react';
 import { api } from '../services/api';
 import { formatRupiah } from '../utils/formatters';
 import { useAuth } from '../context/AuthContext';
 
-export default function Header({ onOpenMobileMenu = () => {} }) {
-  const { user } = useAuth();
+export default function Header({ onOpenMobileMenu = () => {}, onOpenModeModal = () => {} }) {
+  const { user, isAuditMode } = useAuth();
   const [totalBalance, setTotalBalance] = useState(0);
   const [walletCount, setWalletCount] = useState(0);
 
@@ -50,14 +50,34 @@ export default function Header({ onOpenMobileMenu = () => {} }) {
         <div className="hidden md:flex items-center gap-2.5">
           <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
           <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-            Audit Keuangan Real-Time
+            {isAuditMode ? 'Audit Keuangan Real-Time' : 'Pencatatan Keuangan Basic'}
           </span>
         </div>
       </div>
 
-      {/* Right: Total Saldo Riil Pill */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2.5 sm:gap-3 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl bg-slate-50 border border-slate-200/90 shadow-2xs">
+      {/* Right: Total Saldo Riil Pill + Mode Switcher */}
+      <div className="flex items-center gap-2 sm:gap-3">
+        {/* Mode Switcher Button */}
+        <button
+          onClick={onOpenModeModal}
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+            isAuditMode
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+              : 'bg-sky-50 text-sky-800 border-sky-200 hover:bg-sky-100'
+          }`}
+          title="Klik untuk beralih mode aplikasi"
+        >
+          {isAuditMode ? (
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+          ) : (
+            <BookOpen className="w-3.5 h-3.5 text-sky-600" />
+          )}
+          <span className="hidden sm:inline">Mode:</span>
+          <span>{isAuditMode ? 'Audit' : 'Basic'}</span>
+        </button>
+
+        {/* Total Saldo Riil Pill */}
+        <div className="flex items-center gap-2 sm:gap-3 px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-xl bg-slate-50 border border-slate-200/90 shadow-2xs">
           <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-emerald-100/80 text-emerald-800 flex items-center justify-center font-bold shrink-0">
             <Wallet className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </div>
@@ -69,7 +89,7 @@ export default function Header({ onOpenMobileMenu = () => {} }) {
               {formatRupiah(totalBalance)}
             </p>
           </div>
-          <span className="hidden sm:inline text-[10px] font-medium px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-500 ml-1 whitespace-nowrap">
+          <span className="hidden md:inline text-[10px] font-medium px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-500 ml-1 whitespace-nowrap">
             {walletCount} Dompet
           </span>
         </div>

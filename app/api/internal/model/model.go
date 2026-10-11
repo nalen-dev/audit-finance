@@ -12,6 +12,7 @@ type User struct {
 	PasswordHash   string     `json:"-"`
 	FullName       string     `json:"full_name"`
 	TelegramChatID *int64     `json:"telegram_chat_id,omitempty"`
+	AppMode        *string    `json:"app_mode,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 }

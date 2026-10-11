@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { X, ArrowDownRight, ArrowUpRight, ArrowLeftRight, ShieldCheck, PiggyBank, Sparkles } from 'lucide-react';
 import { api } from '../services/api';
 import { useDialog } from '../context/DialogContext';
+import { useAuth } from '../context/AuthContext';
 
 export default function TransactionModal({ isOpen, onClose, onSuccess, defaultType = 'expense', initialData = null }) {
   const { showToast } = useDialog();
+  const { isAuditMode } = useAuth();
   const [type, setType] = useState(defaultType);
   const [amount, setAmount] = useState('');
   const [walletId, setWalletId] = useState('');
@@ -290,8 +292,8 @@ export default function TransactionModal({ isOpen, onClose, onSuccess, defaultTy
             </div>
           )}
 
-          {/* Source of Funds Selection (Only for expense) */}
-          {type === 'expense' && (
+          {/* Source of Funds Selection (Only for expense in Audit Mode) */}
+          {type === 'expense' && isAuditMode && (
             <div className="space-y-2 pt-1">
               <label className="block text-xs font-bold text-slate-700">Sumber Pos Dana:</label>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">

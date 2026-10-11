@@ -1,12 +1,17 @@
 import React from 'react';
-import { LayoutDashboard, ArrowLeftRight, Wallet, Target, Menu } from 'lucide-react';
+import { LayoutDashboard, ArrowLeftRight, Wallet, Target, Tags, Menu } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 export default function MobileBottomNav({ activeTab, setActiveTab, onOpenMore }) {
+  const { isAuditMode } = useAuth();
+
   const tabs = [
     { id: 'dashboard', label: 'Overview', icon: LayoutDashboard },
     { id: 'transactions', label: 'Transaksi', icon: ArrowLeftRight },
     { id: 'wallets', label: 'Dompet', icon: Wallet },
-    { id: 'budgets', label: 'Target', icon: Target },
+    ...(isAuditMode
+      ? [{ id: 'budgets', label: 'Target', icon: Target }]
+      : [{ id: 'categories', label: 'Kategori', icon: Tags }]),
   ];
 
   return (

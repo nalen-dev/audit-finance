@@ -14,12 +14,20 @@ import Register from './pages/Register';
 import { RefreshCw } from 'lucide-react';
 
 import MobileBottomNav from './components/MobileBottomNav';
+import ModeSelectionModal from './components/ModeSelectionModal';
 
 function MainApp() {
-  const { user, loading } = useAuth();
+  const { user, loading, isAuditMode } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [authView, setAuthView] = useState('login'); // 'login' | 'register'
+  const [isModeModalOpen, setIsModeModalOpen] = useState(false);
+
+  // If user is in basic mode, redirect away from budgets
+  React.useEffect(() => {
+    if (!isAuditMode && activeTab === 'budgets') {
+      setActiveTab('dashboard');
+    }
+  }, [isAuditMode, activeTab]);
 
   if (loading) {
     return (
@@ -30,12 +38,10 @@ function MainApp() {
   }
 
   if (!user) {
-    return authView === 'login' ? (
-      <Login onSwitchToRegister={() => setAuthView('register')} />
-    ) : (
-      <Register onSwitchToLogin={() => setAuthView('login')} />
-    );
+    return <Login />;
   }
+
+  const showInitialModeModal = Boolean(user) && !user.app_mode;
 
   return (
     <div className="flex min-h-screen bg-slate-50 text-slate-800 font-sans selection:bg-emerald-500/20 selection:text-emerald-900">
@@ -47,12 +53,15 @@ function MainApp() {
       />
       
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        <Header onOpenMobileMenu={() => setIsMobileMenuOpen(true)} />
+        <Header 
+          onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
+          onOpenModeModal={() => setIsModeModalOpen(true)}
+        />
         <main className="flex-1 overflow-y-auto pb-20 md:pb-6">
           {activeTab === 'dashboard' && <Dashboard setActiveTab={setActiveTab} />}
           {activeTab === 'transactions' && <Transactions />}
           {activeTab === 'wallets' && <Wallets />}
-          {activeTab === 'budgets' && <Budgets />}
+          {activeTab === 'budgets' && isAuditMode && <Budgets />}
           {activeTab === 'categories' && <Categories />}
           {activeTab === 'telegram' && <Settings />}
         </main>
@@ -64,6 +73,13 @@ function MainApp() {
           onOpenMore={() => setIsMobileMenuOpen(true)} 
         />
       </div>
+
+      {/* Mode Selection / Switcher Modal */}
+      <ModeSelectionModal
+        isOpen={isModeModalOpen || showInitialModeModal}
+        canDismiss={!showInitialModeModal}
+        onClose={() => setIsModeModalOpen(false)}
+      />
     </div>
   );
 }

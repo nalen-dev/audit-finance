@@ -18,9 +18,11 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { formatRupiah, formatDate, getPercentColor } from '../utils/formatters';
+import { useAuth } from '../context/AuthContext';
 import TransactionModal from '../components/TransactionModal';
 
 export default function Dashboard({ setActiveTab }) {
+  const { isAuditMode } = useAuth();
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -66,7 +68,11 @@ export default function Dashboard({ setActiveTab }) {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">Overview Keuangan</h1>
-          <p className="text-xs sm:text-sm text-slate-500">Audit harian, kuota belanja riil, dan pelacakan anggaran</p>
+          <p className="text-xs sm:text-sm text-slate-500">
+            {isAuditMode
+              ? 'Audit harian, kuota belanja riil, dan pelacakan anggaran'
+              : 'Pencatatan kas masuk, kas keluar, dan saldo dompet'}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           <button
@@ -93,8 +99,8 @@ export default function Dashboard({ setActiveTab }) {
         </div>
       </div>
 
-      {/* Overspending Alerts Banner */}
-      {summary?.overspending_alerts && summary.overspending_alerts.length > 0 && (
+      {/* Overspending Alerts Banner (Audit Mode Only) */}
+      {isAuditMode && summary?.overspending_alerts && summary.overspending_alerts.length > 0 && (
         <div className="space-y-3">
           {summary.overspending_alerts.map((alert, index) => (
             <div
@@ -118,222 +124,299 @@ export default function Dashboard({ setActiveTab }) {
         </div>
       )}
 
-      {/* Main Metric Cards: Highlighted Money to Spend & Real Balances */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        {/* 1. Money to Spend Hari Ini (Primary Highlight) */}
-        <div className="p-4 sm:p-5 rounded-2xl bg-white border-2 border-emerald-500/80 space-y-2.5 sm:space-y-3 shadow-md shadow-emerald-600/5 relative overflow-hidden">
-          <div className="absolute top-0 right-0 bg-emerald-600 text-white text-[10px] font-bold px-3 py-0.5 rounded-bl-xl uppercase tracking-wider">
-            Hari Ini
+      {/* Metric Cards: Branch by Mode */}
+      {!isAuditMode ? (
+        /* Mode Basic: Cash Flow Metrics */
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          {/* 1. Total Saldo Riil */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/80 space-y-2.5 sm:space-y-3 shadow-xs">
+            <div className="flex items-center justify-between text-slate-500">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                <Wallet className="w-4 h-4 text-emerald-600" />
+                Total Saldo Riil
+              </span>
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                {summary?.wallets?.length || 0} Dompet
+              </span>
+            </div>
+            <div>
+              <p className="text-2xl font-bold tracking-tight text-slate-900">
+                {formatRupiah(summary?.total_balance)}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">Akumulasi seluruh rekening aktif</p>
+            </div>
           </div>
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
-              <Coins className="w-4 h-4 text-emerald-600" />
-              Money to Spend
-            </span>
+
+          {/* 2. Pengeluaran Bulan Ini */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/80 space-y-2.5 sm:space-y-3 shadow-xs">
+            <div className="flex items-center justify-between text-slate-500">
+              <span className="text-xs font-bold uppercase tracking-wider text-rose-700 flex items-center gap-1.5">
+                <ArrowDownRight className="w-4 h-4 text-rose-600" />
+                Pengeluaran (Bulan Ini)
+              </span>
+            </div>
+            <div>
+              <p className="text-2xl font-bold tracking-tight text-rose-600">
+                {formatRupiah(summary?.monthly_expense)}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">Total arus kas keluar bulan ini</p>
+            </div>
           </div>
-          <div>
-            <p className={`text-2xl font-bold tracking-tight ${
-              hasDailyTarget && summary.money_to_spend_today < 0 ? 'text-rose-600' : 'text-emerald-700'
-            }`}>
-              {hasDailyTarget ? formatRupiah(summary.money_to_spend_today) : 'Belum diatur'}
-            </p>
-            <p className="text-xs text-slate-500 mt-1">
-              {hasDailyTarget ? (
-                <>Jatah: {formatRupiah(summary.daily_target)} &bull; Pakai: {formatRupiah(summary.today_expense)}</>
+
+          {/* 3. Pemasukan Bulan Ini */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/80 space-y-2.5 sm:space-y-3 shadow-xs">
+            <div className="flex items-center justify-between text-slate-500">
+              <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
+                <ArrowUpRight className="w-4 h-4 text-emerald-600" />
+                Pemasukan (Bulan Ini)
+              </span>
+            </div>
+            <div>
+              <p className="text-2xl font-bold tracking-tight text-emerald-700">
+                {formatRupiah(summary?.monthly_income)}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">Total arus kas masuk bulan ini</p>
+            </div>
+          </div>
+
+          {/* 4. Arus Kas Bersih */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/80 space-y-2.5 sm:space-y-3 shadow-xs">
+            <div className="flex items-center justify-between text-slate-500">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                <TrendingUp className="w-4 h-4 text-indigo-600" />
+                Arus Kas Bersih
+              </span>
+            </div>
+            <div>
+              <p className={`text-2xl font-bold tracking-tight ${
+                (summary?.monthly_income || 0) - (summary?.monthly_expense || 0) >= 0 ? 'text-indigo-700' : 'text-rose-600'
+              }`}>
+                {formatRupiah((summary?.monthly_income || 0) - (summary?.monthly_expense || 0))}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">Selisih pemasukan vs pengeluaran</p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* Mode Audit: Highlighted Money to Spend & Real Balances */
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          {/* 1. Money to Spend Hari Ini (Primary Highlight) */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-white border-2 border-emerald-500/80 space-y-2.5 sm:space-y-3 shadow-md shadow-emerald-600/5 relative overflow-hidden">
+            <div className="absolute top-0 right-0 bg-emerald-600 text-white text-[10px] font-bold px-3 py-0.5 rounded-bl-xl uppercase tracking-wider">
+              Hari Ini
+            </div>
+            <div className="flex items-center justify-between text-slate-500">
+              <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
+                <Coins className="w-4 h-4 text-emerald-600" />
+                Money to Spend
+              </span>
+            </div>
+            <div>
+              <p className={`text-2xl font-bold tracking-tight ${
+                hasDailyTarget && summary.money_to_spend_today < 0 ? 'text-rose-600' : 'text-emerald-700'
+              }`}>
+                {hasDailyTarget ? formatRupiah(summary.money_to_spend_today) : 'Belum diatur'}
+              </p>
+              <p className="text-xs text-slate-500 mt-1">
+                {hasDailyTarget ? (
+                  <>Jatah: {formatRupiah(summary.daily_target)} &bull; Pakai: {formatRupiah(summary.today_expense)}</>
+                ) : (
+                  <button onClick={() => setActiveTab('budgets')} className="text-emerald-700 underline font-medium">
+                    Atur target harian &rarr;
+                  </button>
+                )}
+              </p>
+            </div>
+          </div>
+
+          {/* 2. Sisa Kuota Bulan Ini */}
+          <div className="p-5 rounded-2xl bg-white border border-slate-200/80 space-y-3 shadow-xs">
+            <div className="flex items-center justify-between text-slate-500">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <CalendarDays className="w-4 h-4 text-sky-600" />
+                Sisa Kuota Bulan Ini
+              </span>
+            </div>
+            <div>
+              <p className={`text-2xl font-bold tracking-tight ${
+                hasMonthlyTarget && summary.money_to_spend_month < 0 ? 'text-rose-600' : 'text-slate-900'
+              }`}>
+                {hasMonthlyTarget ? formatRupiah(summary.money_to_spend_month) : 'Belum diatur'}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                {hasMonthlyTarget ? `Dari limit bulanan ${formatRupiah(summary.monthly_target)}` : 'Sinkron dari target'}
+              </p>
+            </div>
+          </div>
+
+          {/* 3. Tabungan Berjalan Bulan Ini */}
+          <div className="p-5 rounded-2xl bg-white border border-slate-200/80 space-y-3 shadow-xs">
+            <div className="flex items-center justify-between text-slate-500">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <PiggyBank className="w-4 h-4 text-emerald-600" />
+                Tabungan Berjalan (Bulan Ini)
+              </span>
+            </div>
+            <div>
+              <p className={`text-2xl font-bold tracking-tight ${
+                (summary?.monthly_savings_pool || 0) < 0 ? 'text-rose-600' : 'text-emerald-700'
+              }`}>
+                {formatRupiah(summary?.monthly_savings_pool)}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                {(summary?.monthly_savings_pool || 0) < 0
+                  ? 'Defisit tabungan (tertutup bertahap dari sisa daily)'
+                  : 'Akumulasi sisa hemat harian bulan ini'}
+              </p>
+            </div>
+          </div>
+
+          {/* 4. Tabungan Aman (Vault) */}
+          <div className="p-5 rounded-2xl bg-white border border-slate-200/80 space-y-3 shadow-xs">
+            <div className="flex items-center justify-between text-slate-500">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-indigo-600" />
+                Tabungan Aman / Vault
+              </span>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-indigo-700 tracking-tight">
+                {formatRupiah(summary?.safe_vault_amount)}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">Saldo cadangan aman & dana pokok</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Target Tracker Section (Audit Mode Only) */}
+      {isAuditMode && (
+        <div className="p-6 rounded-2xl bg-white border border-slate-200/80 space-y-5 shadow-xs">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-bold text-slate-900">Pelacakan Target Anggaran (Budget Tracker)</h2>
+              <p className="text-xs text-slate-500">Pantau sisa kuota yang masih bisa digunakan setiap harinya</p>
+            </div>
+            <button
+              onClick={() => setActiveTab('budgets')}
+              className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
+            >
+              Atur Target &rarr;
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Daily Card */}
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/60 space-y-3">
+              <div className="flex justify-between items-center text-xs">
+                <span className="font-semibold text-slate-700">Target Harian</span>
+                <span className={`px-2 py-0.5 rounded font-bold border ${summary?.daily_budget ? getPercentColor(summary.daily_budget.percentage) : 'text-slate-400 bg-white border-slate-200'}`}>
+                  {summary?.daily_budget ? `${summary.daily_budget.percentage.toFixed(0)}%` : 'Belum diatur'}
+                </span>
+              </div>
+              {summary?.daily_budget ? (
+                <>
+                  <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full transition-all rounded-full ${
+                        summary.daily_budget.percentage >= 100 ? 'bg-rose-500' : summary.daily_budget.percentage >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
+                      }`}
+                      style={{ width: `${Math.min(summary.daily_budget.percentage, 100)}%` }}
+                    />
+                  </div>
+                  {/* Sisa yang masih bisa digunakan */}
+                  <div className="p-2.5 rounded-lg bg-white border border-slate-200/80 flex justify-between items-center text-xs">
+                    <span className="text-slate-500 font-medium">Sisa Bisa Dipakai:</span>
+                    <span className={`font-bold ${summary.daily_budget.remaining_amount < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
+                      {summary.daily_budget.remaining_amount < 0 
+                        ? `Overspent (${formatRupiah(Math.abs(summary.daily_budget.remaining_amount))})` 
+                        : formatRupiah(summary.daily_budget.remaining_amount)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-[11px] text-slate-400 pt-0.5">
+                    <span>Terpakai: {formatRupiah(summary.daily_budget.spent_amount)}</span>
+                    <span>Batas: {formatRupiah(summary.daily_budget.target_amount)}</span>
+                  </div>
+                </>
               ) : (
-                <button onClick={() => setActiveTab('budgets')} className="text-emerald-700 underline font-medium">
-                  Atur target harian &rarr;
-                </button>
+                <p className="text-xs text-slate-400 italic py-2">Klik 'Atur Target' untuk menetapkan batas harian</p>
               )}
-            </p>
-          </div>
-        </div>
-
-        {/* 2. Sisa Kuota Bulan Ini */}
-        <div className="p-5 rounded-2xl bg-white border border-slate-200/80 space-y-3 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-              <CalendarDays className="w-4 h-4 text-sky-600" />
-              Sisa Kuota Bulan Ini
-            </span>
-          </div>
-          <div>
-            <p className={`text-2xl font-bold tracking-tight ${
-              hasMonthlyTarget && summary.money_to_spend_month < 0 ? 'text-rose-600' : 'text-slate-900'
-            }`}>
-              {hasMonthlyTarget ? formatRupiah(summary.money_to_spend_month) : 'Belum diatur'}
-            </p>
-            <p className="text-xs text-slate-400 mt-1">
-              {hasMonthlyTarget ? `Dari limit bulanan ${formatRupiah(summary.monthly_target)}` : 'Sinkron dari target'}
-            </p>
-          </div>
-        </div>
-
-        {/* 3. Tabungan Berjalan Bulan Ini */}
-        <div className="p-5 rounded-2xl bg-white border border-slate-200/80 space-y-3 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-              <PiggyBank className="w-4 h-4 text-emerald-600" />
-              Tabungan Berjalan (Bulan Ini)
-            </span>
-          </div>
-          <div>
-            <p className={`text-2xl font-bold tracking-tight ${
-              (summary?.monthly_savings_pool || 0) < 0 ? 'text-rose-600' : 'text-emerald-700'
-            }`}>
-              {formatRupiah(summary?.monthly_savings_pool)}
-            </p>
-            <p className="text-xs text-slate-400 mt-1">
-              {(summary?.monthly_savings_pool || 0) < 0
-                ? 'Defisit tabungan (tertutup bertahap dari sisa daily)'
-                : 'Akumulasi sisa hemat harian bulan ini'}
-            </p>
-          </div>
-        </div>
-
-        {/* 4. Tabungan Aman (Vault) */}
-        <div className="p-5 rounded-2xl bg-white border border-slate-200/80 space-y-3 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-indigo-600" />
-              Tabungan Aman / Vault
-            </span>
-          </div>
-          <div>
-            <p className="text-2xl font-bold text-indigo-700 tracking-tight">
-              {formatRupiah(summary?.safe_vault_amount)}
-            </p>
-            <p className="text-xs text-slate-400 mt-1">Saldo cadangan aman & dana pokok</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Target Tracker Section */}
-      <div className="p-6 rounded-2xl bg-white border border-slate-200/80 space-y-5 shadow-xs">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-bold text-slate-900">Pelacakan Target Anggaran (Budget Tracker)</h2>
-            <p className="text-xs text-slate-500">Pantau sisa kuota yang masih bisa digunakan setiap harinya</p>
-          </div>
-          <button
-            onClick={() => setActiveTab('budgets')}
-            className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
-          >
-            Atur Target &rarr;
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Daily Card */}
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/60 space-y-3">
-            <div className="flex justify-between items-center text-xs">
-              <span className="font-semibold text-slate-700">Target Harian</span>
-              <span className={`px-2 py-0.5 rounded font-bold border ${summary?.daily_budget ? getPercentColor(summary.daily_budget.percentage) : 'text-slate-400 bg-white border-slate-200'}`}>
-                {summary?.daily_budget ? `${summary.daily_budget.percentage.toFixed(0)}%` : 'Belum diatur'}
-              </span>
             </div>
-            {summary?.daily_budget ? (
-              <>
-                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full transition-all rounded-full ${
-                      summary.daily_budget.percentage >= 100 ? 'bg-rose-500' : summary.daily_budget.percentage >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
-                    }`}
-                    style={{ width: `${Math.min(summary.daily_budget.percentage, 100)}%` }}
-                  />
-                </div>
-                {/* Sisa yang masih bisa digunakan */}
-                <div className="p-2.5 rounded-lg bg-white border border-slate-200/80 flex justify-between items-center text-xs">
-                  <span className="text-slate-500 font-medium">Sisa Bisa Dipakai:</span>
-                  <span className={`font-bold ${summary.daily_budget.remaining_amount < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
-                    {summary.daily_budget.remaining_amount < 0 
-                      ? `Overspent (${formatRupiah(Math.abs(summary.daily_budget.remaining_amount))})` 
-                      : formatRupiah(summary.daily_budget.remaining_amount)}
-                  </span>
-                </div>
-                <div className="flex justify-between text-[11px] text-slate-400 pt-0.5">
-                  <span>Terpakai: {formatRupiah(summary.daily_budget.spent_amount)}</span>
-                  <span>Batas: {formatRupiah(summary.daily_budget.target_amount)}</span>
-                </div>
-              </>
-            ) : (
-              <p className="text-xs text-slate-400 italic py-2">Klik 'Atur Target' untuk menetapkan batas harian</p>
-            )}
-          </div>
 
-          {/* Weekly Card */}
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/60 space-y-3">
-            <div className="flex justify-between items-center text-xs">
-              <span className="font-semibold text-slate-700">Target Mingguan</span>
-              <span className={`px-2 py-0.5 rounded font-bold border ${summary?.weekly_budget ? getPercentColor(summary.weekly_budget.percentage) : 'text-slate-400 bg-white border-slate-200'}`}>
-                {summary?.weekly_budget ? `${summary.weekly_budget.percentage.toFixed(0)}%` : 'Belum diatur'}
-              </span>
+            {/* Weekly Card */}
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/60 space-y-3">
+              <div className="flex justify-between items-center text-xs">
+                <span className="font-semibold text-slate-700">Target Mingguan</span>
+                <span className={`px-2 py-0.5 rounded font-bold border ${summary?.weekly_budget ? getPercentColor(summary.weekly_budget.percentage) : 'text-slate-400 bg-white border-slate-200'}`}>
+                  {summary?.weekly_budget ? `${summary.weekly_budget.percentage.toFixed(0)}%` : 'Belum diatur'}
+                </span>
+              </div>
+              {summary?.weekly_budget ? (
+                <>
+                  <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full transition-all rounded-full ${
+                        summary.weekly_budget.percentage >= 100 ? 'bg-rose-500' : summary.weekly_budget.percentage >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
+                      }`}
+                      style={{ width: `${Math.min(summary.weekly_budget.percentage, 100)}%` }}
+                    />
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-white border border-slate-200/80 flex justify-between items-center text-xs">
+                    <span className="text-slate-500 font-medium">Sisa Bisa Dipakai:</span>
+                    <span className={`font-bold ${summary.weekly_budget.remaining_amount < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
+                      {summary.weekly_budget.remaining_amount < 0 
+                        ? `Overspent (${formatRupiah(Math.abs(summary.weekly_budget.remaining_amount))})` 
+                        : formatRupiah(summary.weekly_budget.remaining_amount)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-[11px] text-slate-400 pt-0.5">
+                    <span>Terpakai: {formatRupiah(summary.weekly_budget.spent_amount)}</span>
+                    <span>Batas: {formatRupiah(summary.weekly_budget.target_amount)}</span>
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-slate-400 italic py-2">Klik 'Atur Target' untuk menetapkan batas mingguan</p>
+              )}
             </div>
-            {summary?.weekly_budget ? (
-              <>
-                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full transition-all rounded-full ${
-                      summary.weekly_budget.percentage >= 100 ? 'bg-rose-500' : summary.weekly_budget.percentage >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
-                    }`}
-                    style={{ width: `${Math.min(summary.weekly_budget.percentage, 100)}%` }}
-                  />
-                </div>
-                <div className="p-2.5 rounded-lg bg-white border border-slate-200/80 flex justify-between items-center text-xs">
-                  <span className="text-slate-500 font-medium">Sisa Bisa Dipakai:</span>
-                  <span className={`font-bold ${summary.weekly_budget.remaining_amount < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
-                    {summary.weekly_budget.remaining_amount < 0 
-                      ? `Overspent (${formatRupiah(Math.abs(summary.weekly_budget.remaining_amount))})` 
-                      : formatRupiah(summary.weekly_budget.remaining_amount)}
-                  </span>
-                </div>
-                <div className="flex justify-between text-[11px] text-slate-400 pt-0.5">
-                  <span>Terpakai: {formatRupiah(summary.weekly_budget.spent_amount)}</span>
-                  <span>Batas: {formatRupiah(summary.weekly_budget.target_amount)}</span>
-                </div>
-              </>
-            ) : (
-              <p className="text-xs text-slate-400 italic py-2">Klik 'Atur Target' untuk menetapkan batas mingguan</p>
-            )}
-          </div>
 
-          {/* Monthly Card */}
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/60 space-y-3">
-            <div className="flex justify-between items-center text-xs">
-              <span className="font-semibold text-slate-700">Target Bulanan</span>
-              <span className={`px-2 py-0.5 rounded font-bold border ${summary?.monthly_budget ? getPercentColor(summary.monthly_budget.percentage) : 'text-slate-400 bg-white border-slate-200'}`}>
-                {summary?.monthly_budget ? `${summary.monthly_budget.percentage.toFixed(0)}%` : 'Belum diatur'}
-              </span>
+            {/* Monthly Card */}
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/60 space-y-3">
+              <div className="flex justify-between items-center text-xs">
+                <span className="font-semibold text-slate-700">Target Bulanan</span>
+                <span className={`px-2 py-0.5 rounded font-bold border ${summary?.monthly_budget ? getPercentColor(summary.monthly_budget.percentage) : 'text-slate-400 bg-white border-slate-200'}`}>
+                  {summary?.monthly_budget ? `${summary.monthly_budget.percentage.toFixed(0)}%` : 'Belum diatur'}
+                </span>
+              </div>
+              {summary?.monthly_budget ? (
+                <>
+                  <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full transition-all rounded-full ${
+                        summary.monthly_budget.percentage >= 100 ? 'bg-rose-500' : summary.monthly_budget.percentage >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
+                      }`}
+                      style={{ width: `${Math.min(summary.monthly_budget.percentage, 100)}%` }}
+                    />
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-white border border-slate-200/80 flex justify-between items-center text-xs">
+                    <span className="text-slate-500 font-medium">Sisa Bisa Dipakai:</span>
+                    <span className={`font-bold ${summary.monthly_budget.remaining_amount < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
+                      {summary.monthly_budget.remaining_amount < 0 
+                        ? `Overspent (${formatRupiah(Math.abs(summary.monthly_budget.remaining_amount))})` 
+                        : formatRupiah(summary.monthly_budget.remaining_amount)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-[11px] text-slate-400 pt-0.5">
+                    <span>Terpakai: {formatRupiah(summary.monthly_budget.spent_amount)}</span>
+                    <span>Batas: {formatRupiah(summary.monthly_budget.target_amount)}</span>
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-slate-400 italic py-2">Klik 'Atur Target' untuk menetapkan batas bulanan</p>
+              )}
             </div>
-            {summary?.monthly_budget ? (
-              <>
-                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full transition-all rounded-full ${
-                      summary.monthly_budget.percentage >= 100 ? 'bg-rose-500' : summary.monthly_budget.percentage >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
-                    }`}
-                    style={{ width: `${Math.min(summary.monthly_budget.percentage, 100)}%` }}
-                  />
-                </div>
-                <div className="p-2.5 rounded-lg bg-white border border-slate-200/80 flex justify-between items-center text-xs">
-                  <span className="text-slate-500 font-medium">Sisa Bisa Dipakai:</span>
-                  <span className={`font-bold ${summary.monthly_budget.remaining_amount < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
-                    {summary.monthly_budget.remaining_amount < 0 
-                      ? `Overspent (${formatRupiah(Math.abs(summary.monthly_budget.remaining_amount))})` 
-                      : formatRupiah(summary.monthly_budget.remaining_amount)}
-                  </span>
-                </div>
-                <div className="flex justify-between text-[11px] text-slate-400 pt-0.5">
-                  <span>Terpakai: {formatRupiah(summary.monthly_budget.spent_amount)}</span>
-                  <span>Batas: {formatRupiah(summary.monthly_budget.target_amount)}</span>
-                </div>
-              </>
-            ) : (
-              <p className="text-xs text-slate-400 italic py-2">Klik 'Atur Target' untuk menetapkan batas bulanan</p>
-            )}
           </div>
         </div>
-      </div>
+      )}
 
       {/* Bottom Split: Wallets & Recent Transactions */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

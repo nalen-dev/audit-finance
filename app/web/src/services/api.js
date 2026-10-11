@@ -26,6 +26,7 @@ export const api = {
   login: (body) => request('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
   me: () => request('/auth/me'),
   updateTelegram: (telegramChatId) => request('/auth/telegram', { method: 'PUT', body: JSON.stringify({ telegram_chat_id: telegramChatId }) }),
+  updateAppMode: (appMode) => request('/auth/mode', { method: 'PUT', body: JSON.stringify({ app_mode: appMode }) }),
 
   // Wallets
   getWallets: () => request('/wallets'),
