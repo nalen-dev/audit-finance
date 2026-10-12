@@ -61,6 +61,7 @@ export default function Dashboard({ setActiveTab, onOpenCycleModal = () => {} })
 
   const hasDailyTarget = summary?.daily_budget && summary.daily_target > 0;
   const hasMonthlyTarget = summary?.monthly_budget && summary.monthly_target > 0;
+  const hasTarget = Boolean(summary?.daily_target > 0 || summary?.monthly_target > 0);
 
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-5 max-w-7xl mx-auto w-full">
@@ -270,29 +271,36 @@ export default function Dashboard({ setActiveTab, onOpenCycleModal = () => {} })
           </div>
 
           {/* 2. Sisa Kuota Siklus Ini */}
-          <div className="p-5 rounded-2xl bg-white border border-slate-200/80 space-y-3 shadow-xs">
+          <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/80 space-y-2.5 sm:space-y-3 shadow-xs">
             <div className="flex items-center justify-between text-slate-500">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+              <span className="text-xs font-bold uppercase tracking-wider text-sky-800 flex items-center gap-1.5">
                 <CalendarDays className="w-4 h-4 text-sky-600" />
                 Sisa Kuota Siklus Ini
+              </span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-100">
+                {summary?.days_remaining_in_cycle || 0} Hari Sisa
               </span>
             </div>
             <div>
               <p className={`text-2xl font-bold tracking-tight ${
-                hasMonthlyTarget && summary.money_to_spend_month < 0 ? 'text-rose-600' : 'text-slate-900'
+                hasTarget && summary.money_to_spend_month < 0 ? 'text-rose-600' : 'text-slate-900'
               }`}>
-                {hasMonthlyTarget ? formatRupiah(summary.money_to_spend_month) : 'Belum diatur'}
+                {hasTarget ? formatRupiah(summary.money_to_spend_month) : 'Belum diatur'}
               </p>
               <p className="text-xs text-slate-400 mt-1">
-                {hasMonthlyTarget ? `Sisa ${summary?.days_remaining_in_cycle || 0} hari (limit ${formatRupiah(summary.monthly_target)})` : 'Sinkron dari target'}
+                {hasTarget ? (
+                  summary?.daily_target > 0
+                    ? `${formatRupiah(summary.daily_target)}/hari × ${summary?.days_remaining_in_cycle || 0} hari`
+                    : `Sisa kuota dari limit bulanan`
+                ) : 'Atur target harian/bulanan'}
               </p>
             </div>
           </div>
 
           {/* 3. Tabungan Berjalan (Siklus Ini) */}
-          <div className="p-5 rounded-2xl bg-white border border-slate-200/80 space-y-3 shadow-xs">
+          <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/80 space-y-2.5 sm:space-y-3 shadow-xs">
             <div className="flex items-center justify-between text-slate-500">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+              <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
                 <PiggyBank className="w-4 h-4 text-emerald-600" />
                 Tabungan Berjalan (Siklus Ini)
               </span>
@@ -312,18 +320,23 @@ export default function Dashboard({ setActiveTab, onOpenCycleModal = () => {} })
           </div>
 
           {/* 4. Tabungan Aman (Vault) */}
-          <div className="p-5 rounded-2xl bg-white border border-slate-200/80 space-y-3 shadow-xs">
+          <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/80 space-y-2.5 sm:space-y-3 shadow-xs">
             <div className="flex items-center justify-between text-slate-500">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+              <span className="text-xs font-bold uppercase tracking-wider text-indigo-800 flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 text-indigo-600" />
-                Tabungan Aman / Vault
+                Tabungan Aman (Vault)
+              </span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
+                Bebas Pakai
               </span>
             </div>
             <div>
               <p className="text-2xl font-bold text-indigo-700 tracking-tight">
                 {formatRupiah(summary?.safe_vault_amount)}
               </p>
-              <p className="text-xs text-slate-400 mt-1">Saldo cadangan aman & dana pokok</p>
+              <p className="text-xs text-slate-400 mt-1">
+                Sisa saldo riil di luar alokasi hidup s/d gajian
+              </p>
             </div>
           </div>
         </div>

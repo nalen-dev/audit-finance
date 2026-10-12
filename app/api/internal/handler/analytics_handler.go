@@ -166,14 +166,30 @@ func (h *AnalyticsHandler) GetSummary(w http.ResponseWriter, r *http.Request) {
 	// Tabungan Berjalan Siklus Ini: akumulasi hemat harian yang telah lewat - pengeluaran darurat
 	summary.MonthlySavingsPool = accumulatedDailySurplus - monthlyEmergencyExpense
 
-	// Sisa alokasi belanja siklus ini (Target Bulanan - Pengeluaran Belanja Siklus Ini)
-	remainingBudgetMonth := math.Max(0, summary.MonthlyTarget-summary.MonthlyExpense)
+	// Aturan Siklus Keuangan:
+	// "Sisa kuota siklus ini adalah target harian x sisa hari. Sisa uangnya dimasukkan ke tabungan aman"
+	var effectiveDailyTarget float64 = summary.DailyTarget
+	if effectiveDailyTarget == 0 && summary.MonthlyTarget > 0 && cycle.TotalDays > 0 {
+		effectiveDailyTarget = summary.MonthlyTarget / float64(cycle.TotalDays)
+	}
 
-	// Sisa kuota belanja yang masih bisa digunakan siklus ini:
-	if summary.MonthlySavingsPool > 0 {
-		summary.MoneyToSpendMonth = math.Max(0, remainingBudgetMonth-summary.MonthlySavingsPool)
+	if effectiveDailyTarget > 0 {
+		// Sisa kuota yang dibutuhkan sampai cutoff gajian:
+		// (target harian * sisa hari) dikurangi pengeluaran belanja hari ini yang sudah terpakai
+		neededForCycle := (float64(cycle.DaysRemaining) * effectiveDailyTarget) - summary.TodayExpense
+		if neededForCycle < 0 {
+			neededForCycle = 0
+		}
+		// Batasi kuota belanja maksimal sebesar total saldo riil yang ada
+		summary.MoneyToSpendMonth = math.Min(neededForCycle, summary.TotalBalance)
+
+		// Seluruh sisa uang di luar kuota belanja s/d gajian dialokasikan ke Tabungan Aman (Vault)
+		summary.SafeVaultAmount = math.Max(0, summary.TotalBalance-summary.MoneyToSpendMonth)
+		summary.SavedAmount = summary.SafeVaultAmount + math.Max(0, summary.MonthlySavingsPool)
 	} else {
-		summary.MoneyToSpendMonth = remainingBudgetMonth
+		summary.MoneyToSpendMonth = summary.TotalBalance
+		summary.SafeVaultAmount = 0
+		summary.SavedAmount = 0
 	}
 
 	// Dynamic Daily Pacing: rekomendasi jatah belanja harian agar pas sampai cutoff siklus
@@ -186,16 +202,6 @@ func (h *AnalyticsHandler) GetSummary(w http.ResponseWriter, r *http.Request) {
 	// Jika belum ada daily budget kustom, pakai rekomendasi pacing harian
 	if summary.DailyTarget == 0 && summary.DailyBudget == nil {
 		summary.MoneyToSpendToday = summary.DailyPacingRemaining
-	}
-
-	// Tabungan Aman (Vault):
-	// Total Saldo Riil - (Sisa Kuota Belanja Bulan Ini + Tabungan Berjalan).
-	if summary.MonthlyTarget > 0 {
-		summary.SafeVaultAmount = math.Max(0, summary.TotalBalance-(summary.MoneyToSpendMonth+summary.MonthlySavingsPool))
-		summary.SavedAmount = summary.SafeVaultAmount + summary.MonthlySavingsPool
-	} else {
-		summary.SafeVaultAmount = summary.TotalBalance
-		summary.SavedAmount = summary.TotalBalance
 	}
 
 	// 6. Wallets list
