@@ -46,8 +46,14 @@ export function AuthProvider({ children }) {
     setUser((prev) => (prev ? { ...prev, app_mode: mode } : prev));
   };
 
+  const updateBudgetCycleDay = async (day) => {
+    await api.updateBudgetCycleDay(day);
+    setUser((prev) => (prev ? { ...prev, budget_cycle_start_day: day } : prev));
+  };
+
   const appMode = user?.app_mode || null;
   const isAuditMode = user?.app_mode === 'audit';
+  const budgetCycleStartDay = user?.budget_cycle_start_day || 1;
 
   return (
     <AuthContext.Provider
@@ -60,7 +66,9 @@ export function AuthProvider({ children }) {
         loading,
         appMode,
         isAuditMode,
+        budgetCycleStartDay,
         updateAppMode,
+        updateBudgetCycleDay,
       }}
     >
       {children}

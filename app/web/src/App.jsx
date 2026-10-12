@@ -15,12 +15,14 @@ import { RefreshCw } from 'lucide-react';
 
 import MobileBottomNav from './components/MobileBottomNav';
 import ModeSelectionModal from './components/ModeSelectionModal';
+import BudgetCycleModal from './components/BudgetCycleModal';
 
 function MainApp() {
-  const { user, loading, isAuditMode } = useAuth();
+  const { user, loading, isAuditMode, updateBudgetCycleDay } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isModeModalOpen, setIsModeModalOpen] = useState(false);
+  const [isCycleModalOpen, setIsCycleModalOpen] = useState(false);
 
   // If user is in basic mode, redirect away from budgets
   React.useEffect(() => {
@@ -56,9 +58,10 @@ function MainApp() {
         <Header 
           onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
           onOpenModeModal={() => setIsModeModalOpen(true)}
+          onOpenCycleModal={() => setIsCycleModalOpen(true)}
         />
         <main className="flex-1 overflow-y-auto pb-20 md:pb-6">
-          {activeTab === 'dashboard' && <Dashboard setActiveTab={setActiveTab} />}
+          {activeTab === 'dashboard' && <Dashboard setActiveTab={setActiveTab} onOpenCycleModal={() => setIsCycleModalOpen(true)} />}
           {activeTab === 'transactions' && <Transactions />}
           {activeTab === 'wallets' && <Wallets />}
           {activeTab === 'budgets' && isAuditMode && <Budgets />}
@@ -79,6 +82,17 @@ function MainApp() {
         isOpen={isModeModalOpen || showInitialModeModal}
         canDismiss={!showInitialModeModal}
         onClose={() => setIsModeModalOpen(false)}
+      />
+
+      {/* Dynamic Budget Cycle Modal */}
+      <BudgetCycleModal
+        isOpen={isCycleModalOpen}
+        currentDay={user?.budget_cycle_start_day || 1}
+        onClose={() => setIsCycleModalOpen(false)}
+        onSaved={async (day) => {
+          await updateBudgetCycleDay(day);
+          window.location.reload();
+        }}
       />
     </div>
   );

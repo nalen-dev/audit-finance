@@ -11,6 +11,7 @@ import (
 
 	"finance-audit/api/internal/middleware"
 	"finance-audit/api/internal/model"
+	"finance-audit/api/internal/service"
 )
 
 type AnalyticsHandler struct {
@@ -34,6 +35,17 @@ func (h *AnalyticsHandler) GetSummary(w http.ResponseWriter, r *http.Request) {
 		OverspendingAlerts: make([]model.OverspendingAlert, 0),
 	}
 
+	// Retrieve user's budget cycle start day
+	var cycleStartDay int = 1
+	_ = h.db.QueryRowContext(r.Context(), `SELECT COALESCE(budget_cycle_start_day, 1) FROM users WHERE id = $1`, userID).Scan(&cycleStartDay)
+	cycle := service.CalculateBudgetCycle(cycleStartDay, time.Now())
+
+	summary.BudgetCycleStartDay = cycle.StartDay
+	summary.CycleStartDate = cycle.StartDateStr
+	summary.CycleEndDate = cycle.EndDateStr
+	summary.DaysRemainingInCycle = cycle.DaysRemaining
+	summary.DaysTotalInCycle = cycle.TotalDays
+
 	// 1. Total Balance across all wallets
 	_ = h.db.QueryRowContext(r.Context(), `
 		SELECT COALESCE(SUM(current_balance), 0) FROM wallets WHERE user_id = $1
@@ -50,19 +62,19 @@ func (h *AnalyticsHandler) GetSummary(w http.ResponseWriter, r *http.Request) {
 		  AND transaction_date = CURRENT_DATE
 	`, userID).Scan(&summary.TodayExpense)
 
-	// 3. Monthly Income & Regular Expense
+	// 3. Monthly Income & Regular Expense (Based on Budget Cycle)
 	_ = h.db.QueryRowContext(r.Context(), `
 		SELECT 
 			COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0),
 			COALESCE(SUM(CASE WHEN type = 'expense' AND (use_savings IS FALSE OR use_savings IS NULL) AND (use_vault IS FALSE OR use_vault IS NULL) THEN amount ELSE 0 END), 0)
 		FROM transactions 
 		WHERE user_id = $1 
-		  AND transaction_date >= date_trunc('month', CURRENT_DATE)
+		  AND transaction_date >= $2::date
 		  AND transaction_date <= CURRENT_DATE
-	`, userID).Scan(&summary.MonthlyIncome, &summary.MonthlyExpense)
+	`, userID, cycle.StartDateStr).Scan(&summary.MonthlyIncome, &summary.MonthlyExpense)
 
 	// 4. Budgets (Daily, Weekly, Monthly)
-	budgets := h.getBudgetsWithSpent(userID)
+	budgets := h.getBudgetsWithSpent(userID, cycle)
 	for i := range budgets {
 		b := budgets[i]
 		if b.CategoryID == nil { // Total spending budget
@@ -102,17 +114,17 @@ func (h *AnalyticsHandler) GetSummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 5. Calculate Monthly Savings Pool and Safe Vault Amount
-	// A. Find the budget's active start date in the current month
+	// A. Find the budget's active start date in the current cycle
 	// Only count completed days after the budget was established
 	var pastDays int
 	var startDate string
 	_ = h.db.QueryRowContext(r.Context(), `
 		SELECT 
-			COALESCE(CURRENT_DATE - GREATEST(date_trunc('month', CURRENT_DATE)::date, MIN(created_at)::date), 0),
-			COALESCE(GREATEST(date_trunc('month', CURRENT_DATE)::date, MIN(created_at)::date)::text, CURRENT_DATE::text)
+			COALESCE(CURRENT_DATE - GREATEST($2::date, MIN(created_at)::date), 0),
+			COALESCE(GREATEST($2::date, MIN(created_at)::date)::text, CURRENT_DATE::text)
 		FROM budgets
 		WHERE user_id = $1 AND category_id IS NULL
-	`, userID).Scan(&pastDays, &startDate)
+	`, userID, cycle.StartDateStr).Scan(&pastDays, &startDate)
 
 	if pastDays < 0 {
 		pastDays = 0
@@ -133,7 +145,7 @@ func (h *AnalyticsHandler) GetSummary(w http.ResponseWriter, r *http.Request) {
 		`, userID, startDate).Scan(&pastRegularExpense)
 	}
 
-	// C. Query emergency expenses this month (use_savings = true and not vault)
+	// C. Query emergency expenses in this cycle (use_savings = true and not vault)
 	var monthlyEmergencyExpense float64
 	_ = h.db.QueryRowContext(r.Context(), `
 		SELECT COALESCE(SUM(amount), 0)
@@ -142,34 +154,42 @@ func (h *AnalyticsHandler) GetSummary(w http.ResponseWriter, r *http.Request) {
 		  AND type = 'expense'
 		  AND use_savings IS TRUE
 		  AND (use_vault IS FALSE OR use_vault IS NULL)
-		  AND transaction_date >= date_trunc('month', CURRENT_DATE)
+		  AND transaction_date >= $2::date
 		  AND transaction_date <= CURRENT_DATE
-	`, userID).Scan(&monthlyEmergencyExpense)
+	`, userID, cycle.StartDateStr).Scan(&monthlyEmergencyExpense)
 
 	var accumulatedDailySurplus float64
 	if summary.DailyTarget > 0 && pastDays > 0 {
 		accumulatedDailySurplus = math.Max(0, (float64(pastDays)*summary.DailyTarget)-pastRegularExpense)
 	}
 
-	// Tabungan Berjalan Bulan Ini: akumulasi hemat harian yang telah lewat - pengeluaran darurat
-	// Bisa bernilai negatif jika pengeluaran darurat melebihi saldo tabungan berjalan (defisit pos tabungan)
+	// Tabungan Berjalan Siklus Ini: akumulasi hemat harian yang telah lewat - pengeluaran darurat
 	summary.MonthlySavingsPool = accumulatedDailySurplus - monthlyEmergencyExpense
 
-	// Sisa alokasi belanja bulan ini (Target Bulanan - Pengeluaran Belanja Bulan Ini)
+	// Sisa alokasi belanja siklus ini (Target Bulanan - Pengeluaran Belanja Siklus Ini)
 	remainingBudgetMonth := math.Max(0, summary.MonthlyTarget-summary.MonthlyExpense)
 
-	// Sisa kuota belanja yang masih bisa digunakan bulan ini:
-	// Jika tabungan berjalan positif (sudah ada sisa hari yang terkunci), kurangi dari pagu belanja sisa agar tidak terhitung ganda.
-	// Jika tabungan berjalan 0 atau minus, sisa kuota belanja bulanan tetap utuh (tidak dipotong pengeluaran darurat).
+	// Sisa kuota belanja yang masih bisa digunakan siklus ini:
 	if summary.MonthlySavingsPool > 0 {
 		summary.MoneyToSpendMonth = math.Max(0, remainingBudgetMonth-summary.MonthlySavingsPool)
 	} else {
 		summary.MoneyToSpendMonth = remainingBudgetMonth
 	}
 
+	// Dynamic Daily Pacing: rekomendasi jatah belanja harian agar pas sampai cutoff siklus
+	if summary.MoneyToSpendMonth > 0 && cycle.DaysRemaining > 0 {
+		summary.DailyPacingRemaining = math.Round((summary.MoneyToSpendMonth/float64(cycle.DaysRemaining))*100) / 100
+	} else {
+		summary.DailyPacingRemaining = 0
+	}
+
+	// Jika belum ada daily budget kustom, pakai rekomendasi pacing harian
+	if summary.DailyTarget == 0 && summary.DailyBudget == nil {
+		summary.MoneyToSpendToday = summary.DailyPacingRemaining
+	}
+
 	// Tabungan Aman (Vault):
-	// Uang cadangan permanen di luar alokasi belanja dan tabungan berjalan.
-	// Dihitung sebagai Total Saldo Riil - (Sisa Kuota Belanja Bulan Ini + Tabungan Berjalan).
+	// Total Saldo Riil - (Sisa Kuota Belanja Bulan Ini + Tabungan Berjalan).
 	if summary.MonthlyTarget > 0 {
 		summary.SafeVaultAmount = math.Max(0, summary.TotalBalance-(summary.MoneyToSpendMonth+summary.MonthlySavingsPool))
 		summary.SavedAmount = summary.SafeVaultAmount + summary.MonthlySavingsPool
@@ -251,7 +271,7 @@ func (h *AnalyticsHandler) GetSummary(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, summary)
 }
 
-func (h *AnalyticsHandler) getBudgetsWithSpent(userID uuid.UUID) []model.Budget {
+func (h *AnalyticsHandler) getBudgetsWithSpent(userID uuid.UUID, cycle service.CycleRange) []model.Budget {
 	query := `
 		SELECT 
 			b.id, b.user_id, b.category_id, b.period, b.target_amount, b.alert_threshold_percentage,
@@ -286,7 +306,7 @@ func (h *AnalyticsHandler) getBudgetsWithSpent(userID uuid.UUID) []model.Budget 
 		case "weekly":
 			dateFilter = "transaction_date >= date_trunc('week', CURRENT_DATE) AND transaction_date <= CURRENT_DATE"
 		case "monthly":
-			dateFilter = "transaction_date >= date_trunc('month', CURRENT_DATE) AND transaction_date <= CURRENT_DATE"
+			dateFilter = "transaction_date >= '" + cycle.StartDateStr + "'::date AND transaction_date <= CURRENT_DATE"
 		}
 
 		spendQuery := `SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = $1 AND type = 'expense' AND (use_savings IS FALSE OR use_savings IS NULL) AND (use_vault IS FALSE OR use_vault IS NULL) AND ` + dateFilter

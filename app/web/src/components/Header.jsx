@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Wallet, Menu, Sparkles, ShieldCheck, BookOpen } from 'lucide-react';
+import { Wallet, Menu, Sparkles, ShieldCheck, BookOpen, Calendar } from 'lucide-react';
 import { api } from '../services/api';
 import { formatRupiah } from '../utils/formatters';
 import { useAuth } from '../context/AuthContext';
 
-export default function Header({ onOpenMobileMenu = () => {}, onOpenModeModal = () => {} }) {
+export default function Header({ 
+  onOpenMobileMenu = () => {}, 
+  onOpenModeModal = () => {}, 
+  onOpenCycleModal = () => {} 
+}) {
   const { user, isAuditMode } = useAuth();
   const [totalBalance, setTotalBalance] = useState(0);
   const [walletCount, setWalletCount] = useState(0);
@@ -57,10 +61,21 @@ export default function Header({ onOpenMobileMenu = () => {}, onOpenModeModal = 
 
       {/* Right: Total Saldo Riil Pill + Mode Switcher */}
       <div className="flex items-center gap-2 sm:gap-3">
+        {/* Siklus Cutoff Button */}
+        <button
+          onClick={onOpenCycleModal}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl text-xs font-semibold border bg-indigo-50 text-indigo-800 border-indigo-200 hover:bg-indigo-100 transition-all cursor-pointer shadow-2xs"
+          title="Atur tanggal cutoff siklus bulanan (gajian)"
+        >
+          <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+          <span className="hidden sm:inline">Siklus:</span>
+          <span>Tgl {user?.budget_cycle_start_day || 1}</span>
+        </button>
+
         {/* Mode Switcher Button */}
         <button
           onClick={onOpenModeModal}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer shadow-2xs ${
             isAuditMode
               ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
               : 'bg-sky-50 text-sky-800 border-sky-200 hover:bg-sky-100'

@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"math"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
 	"finance-audit/api/internal/middleware"
 	"finance-audit/api/internal/model"
+	"finance-audit/api/internal/service"
 )
 
 type BudgetHandler struct {
@@ -57,6 +59,10 @@ func (h *BudgetHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
+	var cycleStartDay int = 1
+	_ = h.db.QueryRowContext(r.Context(), `SELECT COALESCE(budget_cycle_start_day, 1) FROM users WHERE id = $1`, userID).Scan(&cycleStartDay)
+	cycle := service.CalculateBudgetCycle(cycleStartDay, time.Now())
+
 	budgets := make([]model.Budget, 0)
 	for rows.Next() {
 		var b model.Budget
@@ -80,7 +86,7 @@ func (h *BudgetHandler) List(w http.ResponseWriter, r *http.Request) {
 		case "weekly":
 			dateFilter = "transaction_date >= date_trunc('week', CURRENT_DATE) AND transaction_date <= CURRENT_DATE"
 		case "monthly":
-			dateFilter = "transaction_date >= date_trunc('month', CURRENT_DATE) AND transaction_date <= CURRENT_DATE"
+			dateFilter = "transaction_date >= '" + cycle.StartDateStr + "'::date AND transaction_date <= CURRENT_DATE"
 		}
 
 		spendQuery := `SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = $1 AND type = 'expense' AND (use_savings IS FALSE OR use_savings IS NULL) AND (use_vault IS FALSE OR use_vault IS NULL) AND ` + dateFilter

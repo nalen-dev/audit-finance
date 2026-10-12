@@ -27,6 +27,7 @@ export const api = {
   me: () => request('/auth/me'),
   updateTelegram: (telegramChatId) => request('/auth/telegram', { method: 'PUT', body: JSON.stringify({ telegram_chat_id: telegramChatId }) }),
   updateAppMode: (appMode) => request('/auth/mode', { method: 'PUT', body: JSON.stringify({ app_mode: appMode }) }),
+  updateBudgetCycleDay: (startDay) => request('/auth/cycle-day', { method: 'PUT', body: JSON.stringify({ start_day: startDay }) }),
 
   // Wallets
   getWallets: () => request('/wallets'),

@@ -52,12 +52,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var user model.User
 	var passwordHash string
 	query := `
-		SELECT id, email, password_hash, full_name, telegram_chat_id, app_mode, created_at, updated_at
+		SELECT id, email, password_hash, full_name, telegram_chat_id, app_mode, COALESCE(budget_cycle_start_day, 1), created_at, updated_at
 		FROM users
 		WHERE email = $1
 	`
 	err := h.db.QueryRowContext(r.Context(), query, req.Email).Scan(
-		&user.ID, &user.Email, &passwordHash, &user.FullName, &user.TelegramChatID, &user.AppMode, &user.CreatedAt, &user.UpdatedAt,
+		&user.ID, &user.Email, &passwordHash, &user.FullName, &user.TelegramChatID, &user.AppMode, &user.BudgetCycleStartDay, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -95,12 +95,12 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 
 	var user model.User
 	query := `
-		SELECT id, email, full_name, telegram_chat_id, app_mode, created_at, updated_at
+		SELECT id, email, full_name, telegram_chat_id, app_mode, COALESCE(budget_cycle_start_day, 1), created_at, updated_at
 		FROM users
 		WHERE id = $1
 	`
 	err := h.db.QueryRowContext(r.Context(), query, userID).Scan(
-		&user.ID, &user.Email, &user.FullName, &user.TelegramChatID, &user.AppMode, &user.CreatedAt, &user.UpdatedAt,
+		&user.ID, &user.Email, &user.FullName, &user.TelegramChatID, &user.AppMode, &user.BudgetCycleStartDay, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if err != nil {
 		respondError(w, http.StatusNotFound, "User not found")
@@ -165,6 +165,39 @@ func (h *AuthHandler) UpdateAppMode(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"message":  "App mode updated successfully",
 		"app_mode": req.AppMode,
+	})
+}
+
+func (h *AuthHandler) UpdateBudgetCycleStartDay(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserIDFromContext(r.Context())
+	if !ok {
+		respondError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var req struct {
+		StartDay int `json:"start_day"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.StartDay < 1 || req.StartDay > 31 {
+		respondError(w, http.StatusBadRequest, "Tanggal siklus anggaran harus antara 1 sampai 31")
+		return
+	}
+
+	query := `UPDATE users SET budget_cycle_start_day = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`
+	_, err := h.db.ExecContext(r.Context(), query, req.StartDay, userID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Gagal memperbarui tanggal siklus anggaran")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"message":                "Tanggal siklus anggaran berhasil diperbarui",
+		"budget_cycle_start_day": req.StartDay,
 	})
 }
 

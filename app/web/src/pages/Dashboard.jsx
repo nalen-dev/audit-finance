@@ -21,7 +21,7 @@ import { formatRupiah, formatDate, getPercentColor } from '../utils/formatters';
 import { useAuth } from '../context/AuthContext';
 import TransactionModal from '../components/TransactionModal';
 
-export default function Dashboard({ setActiveTab }) {
+export default function Dashboard({ setActiveTab, onOpenCycleModal = () => {} }) {
   const { isAuditMode } = useAuth();
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -99,6 +99,42 @@ export default function Dashboard({ setActiveTab }) {
         </div>
       </div>
 
+      {/* Active Financial Cycle Info Banner */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 sm:px-4 sm:py-3 rounded-2xl bg-gradient-to-r from-indigo-50/80 via-white to-slate-50 border border-indigo-100/90 text-slate-700 shadow-2xs">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+            <CalendarDays className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold text-slate-800">
+                Siklus Keuangan: {summary?.cycle_start_date ? formatDate(summary.cycle_start_date) : '-'} &ndash; {summary?.cycle_end_date ? formatDate(summary.cycle_end_date) : '-'}
+              </span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200">
+                Cutoff Tgl {summary?.budget_cycle_start_day || 1}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              {summary?.days_remaining_in_cycle ?? 0} hari tersisa menuju tanggal cutoff / gajian berikutnya
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 self-end sm:self-center">
+          {isAuditMode && (summary?.daily_pacing_remaining || 0) > 0 && (
+            <div className="text-right hidden sm:block">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block leading-tight">Rekomendasi Pacing</span>
+              <span className="text-xs font-bold text-indigo-600">{formatRupiah(summary.daily_pacing_remaining)} / hari</span>
+            </div>
+          )}
+          <button
+            onClick={onOpenCycleModal}
+            className="px-3 py-1.5 rounded-xl bg-white hover:bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-bold transition-all shadow-2xs whitespace-nowrap"
+          >
+            Ubah Tanggal Cutoff
+          </button>
+        </div>
+      </div>
+
       {/* Overspending Alerts Banner (Audit Mode Only) */}
       {isAuditMode && summary?.overspending_alerts && summary.overspending_alerts.length > 0 && (
         <div className="space-y-3">
@@ -147,35 +183,35 @@ export default function Dashboard({ setActiveTab }) {
             </div>
           </div>
 
-          {/* 2. Pengeluaran Bulan Ini */}
+          {/* 2. Pengeluaran Periode Ini */}
           <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/80 space-y-2.5 sm:space-y-3 shadow-xs">
             <div className="flex items-center justify-between text-slate-500">
               <span className="text-xs font-bold uppercase tracking-wider text-rose-700 flex items-center gap-1.5">
                 <ArrowDownRight className="w-4 h-4 text-rose-600" />
-                Pengeluaran (Bulan Ini)
+                Pengeluaran (Periode Ini)
               </span>
             </div>
             <div>
               <p className="text-2xl font-bold tracking-tight text-rose-600">
                 {formatRupiah(summary?.monthly_expense)}
               </p>
-              <p className="text-xs text-slate-400 mt-1">Total arus kas keluar bulan ini</p>
+              <p className="text-xs text-slate-400 mt-1">Total arus kas keluar siklus berjalan</p>
             </div>
           </div>
 
-          {/* 3. Pemasukan Bulan Ini */}
+          {/* 3. Pemasukan Periode Ini */}
           <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/80 space-y-2.5 sm:space-y-3 shadow-xs">
             <div className="flex items-center justify-between text-slate-500">
               <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
                 <ArrowUpRight className="w-4 h-4 text-emerald-600" />
-                Pemasukan (Bulan Ini)
+                Pemasukan (Periode Ini)
               </span>
             </div>
             <div>
               <p className="text-2xl font-bold tracking-tight text-emerald-700">
                 {formatRupiah(summary?.monthly_income)}
               </p>
-              <p className="text-xs text-slate-400 mt-1">Total arus kas masuk bulan ini</p>
+              <p className="text-xs text-slate-400 mt-1">Total arus kas masuk siklus berjalan</p>
             </div>
           </div>
 
@@ -193,7 +229,7 @@ export default function Dashboard({ setActiveTab }) {
               }`}>
                 {formatRupiah((summary?.monthly_income || 0) - (summary?.monthly_expense || 0))}
               </p>
-              <p className="text-xs text-slate-400 mt-1">Selisih pemasukan vs pengeluaran</p>
+              <p className="text-xs text-slate-400 mt-1">Selisih arus kas dalam siklus aktif</p>
             </div>
           </div>
         </div>
@@ -203,7 +239,7 @@ export default function Dashboard({ setActiveTab }) {
           {/* 1. Money to Spend Hari Ini (Primary Highlight) */}
           <div className="p-4 sm:p-5 rounded-2xl bg-white border-2 border-emerald-500/80 space-y-2.5 sm:space-y-3 shadow-md shadow-emerald-600/5 relative overflow-hidden">
             <div className="absolute top-0 right-0 bg-emerald-600 text-white text-[10px] font-bold px-3 py-0.5 rounded-bl-xl uppercase tracking-wider">
-              Hari Ini
+              {hasDailyTarget ? 'Target Harian' : 'Rekomendasi Pacing'}
             </div>
             <div className="flex items-center justify-between text-slate-500">
               <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
@@ -213,28 +249,32 @@ export default function Dashboard({ setActiveTab }) {
             </div>
             <div>
               <p className={`text-2xl font-bold tracking-tight ${
-                hasDailyTarget && summary.money_to_spend_today < 0 ? 'text-rose-600' : 'text-emerald-700'
+                summary?.money_to_spend_today < 0 ? 'text-rose-600' : 'text-emerald-700'
               }`}>
-                {hasDailyTarget ? formatRupiah(summary.money_to_spend_today) : 'Belum diatur'}
+                {hasDailyTarget 
+                  ? formatRupiah(summary?.money_to_spend_today) 
+                  : (summary?.daily_pacing_remaining > 0 ? formatRupiah(summary.daily_pacing_remaining) : 'Belum diatur')}
               </p>
               <p className="text-xs text-slate-500 mt-1">
                 {hasDailyTarget ? (
                   <>Jatah: {formatRupiah(summary.daily_target)} &bull; Pakai: {formatRupiah(summary.today_expense)}</>
+                ) : summary?.daily_pacing_remaining > 0 ? (
+                  <>Pacing sisa {summary?.days_remaining_in_cycle || 0} hari menuju cutoff</>
                 ) : (
                   <button onClick={() => setActiveTab('budgets')} className="text-emerald-700 underline font-medium">
-                    Atur target harian &rarr;
+                    Atur target anggaran &rarr;
                   </button>
                 )}
               </p>
             </div>
           </div>
 
-          {/* 2. Sisa Kuota Bulan Ini */}
+          {/* 2. Sisa Kuota Siklus Ini */}
           <div className="p-5 rounded-2xl bg-white border border-slate-200/80 space-y-3 shadow-xs">
             <div className="flex items-center justify-between text-slate-500">
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                 <CalendarDays className="w-4 h-4 text-sky-600" />
-                Sisa Kuota Bulan Ini
+                Sisa Kuota Siklus Ini
               </span>
             </div>
             <div>
@@ -244,17 +284,17 @@ export default function Dashboard({ setActiveTab }) {
                 {hasMonthlyTarget ? formatRupiah(summary.money_to_spend_month) : 'Belum diatur'}
               </p>
               <p className="text-xs text-slate-400 mt-1">
-                {hasMonthlyTarget ? `Dari limit bulanan ${formatRupiah(summary.monthly_target)}` : 'Sinkron dari target'}
+                {hasMonthlyTarget ? `Sisa ${summary?.days_remaining_in_cycle || 0} hari (limit ${formatRupiah(summary.monthly_target)})` : 'Sinkron dari target'}
               </p>
             </div>
           </div>
 
-          {/* 3. Tabungan Berjalan Bulan Ini */}
+          {/* 3. Tabungan Berjalan (Siklus Ini) */}
           <div className="p-5 rounded-2xl bg-white border border-slate-200/80 space-y-3 shadow-xs">
             <div className="flex items-center justify-between text-slate-500">
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                 <PiggyBank className="w-4 h-4 text-emerald-600" />
-                Tabungan Berjalan (Bulan Ini)
+                Tabungan Berjalan (Siklus Ini)
               </span>
             </div>
             <div>
@@ -266,7 +306,7 @@ export default function Dashboard({ setActiveTab }) {
               <p className="text-xs text-slate-400 mt-1">
                 {(summary?.monthly_savings_pool || 0) < 0
                   ? 'Defisit tabungan (tertutup bertahap dari sisa daily)'
-                  : 'Akumulasi sisa hemat harian bulan ini'}
+                  : 'Akumulasi sisa hemat harian siklus ini'}
               </p>
             </div>
           </div>

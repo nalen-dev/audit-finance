@@ -11,9 +11,10 @@ type User struct {
 	Email          string     `json:"email"`
 	PasswordHash   string     `json:"-"`
 	FullName       string     `json:"full_name"`
-	TelegramChatID *int64     `json:"telegram_chat_id,omitempty"`
-	AppMode        *string    `json:"app_mode,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
+	TelegramChatID       *int64     `json:"telegram_chat_id,omitempty"`
+	AppMode              *string    `json:"app_mode,omitempty"`
+	BudgetCycleStartDay  int        `json:"budget_cycle_start_day"`
+	CreatedAt            time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
@@ -97,10 +98,16 @@ type DashboardSummary struct {
 	DailyTarget        float64             `json:"daily_target"`
 	WeeklyTarget       float64             `json:"weekly_target"`
 	MonthlyTarget      float64             `json:"monthly_target"`
-	MonthlyIncome      float64             `json:"monthly_income"`
-	MonthlyExpense     float64             `json:"monthly_expense"`
-	SavedAmount        float64             `json:"saved_amount"` // Total akumulasi tabungan
-	DailyBudget        *Budget             `json:"daily_budget,omitempty"`
+	MonthlyIncome        float64             `json:"monthly_income"`
+	MonthlyExpense       float64             `json:"monthly_expense"`
+	SavedAmount          float64             `json:"saved_amount"` // Total akumulasi tabungan
+	BudgetCycleStartDay  int                 `json:"budget_cycle_start_day"`
+	CycleStartDate       string              `json:"cycle_start_date"`
+	CycleEndDate         string              `json:"cycle_end_date"`
+	DaysRemainingInCycle int                 `json:"days_remaining_in_cycle"`
+	DaysTotalInCycle     int                 `json:"days_total_in_cycle"`
+	DailyPacingRemaining float64             `json:"daily_pacing_remaining"` // Rekomendasi belanja harian sisa (MoneyToSpendMonth / DaysRemainingInCycle)
+	DailyBudget          *Budget             `json:"daily_budget,omitempty"`
 	WeeklyBudget       *Budget             `json:"weekly_budget,omitempty"`
 	MonthlyBudget      *Budget             `json:"monthly_budget,omitempty"`
 	RecentTransactions []Transaction       `json:"recent_transactions"`

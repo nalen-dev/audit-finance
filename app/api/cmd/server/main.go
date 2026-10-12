@@ -75,6 +75,7 @@ func main() {
 		protected.Get("/api/auth/me", authHandler.Me)
 		protected.Put("/api/auth/telegram", authHandler.UpdateTelegram)
 		protected.Put("/api/auth/mode", authHandler.UpdateAppMode)
+		protected.Put("/api/auth/cycle-day", authHandler.UpdateBudgetCycleStartDay)
 
 		// Wallets
 		protected.Get("/api/wallets", walletHandler.List)
