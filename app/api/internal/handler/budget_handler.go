@@ -139,20 +139,29 @@ func (h *BudgetHandler) Set(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.CategoryID == nil {
+		var cycleStartDay int = 1
+		_ = h.db.QueryRowContext(r.Context(), `SELECT COALESCE(budget_cycle_start_day, 1) FROM users WHERE id = $1`, userID).Scan(&cycleStartDay)
+		cycle := service.CalculateBudgetCycle(cycleStartDay, time.Now())
+
+		totalDays := float64(cycle.TotalDays)
+		if totalDays <= 0 {
+			totalDays = 30
+		}
+
 		var dailyTarget, weeklyTarget, monthlyTarget float64
 		switch req.Period {
 		case "monthly":
-			dailyTarget = math.Round(req.TargetAmount / 30.0)
+			dailyTarget = math.Round((req.TargetAmount / totalDays) * 100) / 100
 			weeklyTarget = math.Round(dailyTarget * 7.0)
 			monthlyTarget = req.TargetAmount
 		case "daily":
 			dailyTarget = req.TargetAmount
-			weeklyTarget = math.Round(req.TargetAmount * 7.0)
-			monthlyTarget = math.Round(req.TargetAmount * 30.0)
+			weeklyTarget = math.Round(dailyTarget * 7.0)
+			monthlyTarget = math.Round(dailyTarget * totalDays)
 		case "weekly":
-			dailyTarget = math.Round(req.TargetAmount / 7.0)
+			dailyTarget = math.Round((req.TargetAmount / 7.0) * 100) / 100
 			weeklyTarget = req.TargetAmount
-			monthlyTarget = math.Round(dailyTarget * 30.0)
+			monthlyTarget = math.Round(dailyTarget * totalDays)
 		}
 
 		upsertQuery := `
@@ -217,7 +226,15 @@ func (h *BudgetHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := h.db.ExecContext(r.Context(), `DELETE FROM budgets WHERE id = $1 AND user_id = $2`, budgetID, userID)
+	var isTotalSpending bool
+	_ = h.db.QueryRowContext(r.Context(), `SELECT (category_id IS NULL) FROM budgets WHERE id = $1 AND user_id = $2`, budgetID, userID).Scan(&isTotalSpending)
+
+	var res sql.Result
+	if isTotalSpending {
+		res, err = h.db.ExecContext(r.Context(), `DELETE FROM budgets WHERE user_id = $1 AND category_id IS NULL`, userID)
+	} else {
+		res, err = h.db.ExecContext(r.Context(), `DELETE FROM budgets WHERE id = $1 AND user_id = $2`, budgetID, userID)
+	}
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to delete budget")
 		return

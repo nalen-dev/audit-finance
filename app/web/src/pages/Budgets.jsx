@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Target, Plus, Trash2, X, RefreshCw, AlertTriangle, ArrowRightLeft } from 'lucide-react';
+import { Target, Plus, Trash2, X, RefreshCw, AlertTriangle, ArrowRightLeft, Sparkles, Zap } from 'lucide-react';
 import { api } from '../services/api';
 import { formatRupiah, getPercentColor } from '../utils/formatters';
 import { useDialog } from '../context/DialogContext';
@@ -62,10 +62,12 @@ export default function Budgets() {
 
   const { confirm, showToast } = useDialog();
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id, isTotalSpending) => {
     const ok = await confirm({
       title: 'Hapus Target Anggaran',
-      message: 'Apakah Anda yakin ingin menghapus target batas anggaran ini?',
+      message: isTotalSpending 
+        ? 'Target ini tersinkronisasi otomatis dengan target harian, mingguan, dan bulanan. Menghapusnya akan mereset seluruh target pengeluaran total.'
+        : 'Apakah Anda yakin ingin menghapus target batas anggaran ini?',
       confirmText: 'Ya, Hapus Anggaran',
       type: 'danger',
     });
@@ -129,16 +131,25 @@ export default function Budgets() {
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-100 text-slate-600">
-                    Periode {b.period}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+                      Periode {b.period}
+                    </span>
+                    {!b.category_id && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
+                        <Zap className="w-3 h-3 text-emerald-600" />
+                        Sinkron Otomatis
+                      </span>
+                    )}
+                  </div>
                   <h3 className="font-bold text-slate-900 text-base mt-2">
                     {b.category_name ? b.category_name : 'Total Seluruh Pengeluaran'}
                   </h3>
                 </div>
                 <button
-                  onClick={() => handleDelete(b.id)}
+                  onClick={() => handleDelete(b.id, !b.category_id)}
                   className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                  title="Hapus Target"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -265,6 +276,47 @@ export default function Budgets() {
                   required
                 />
               </div>
+
+              {/* Dynamic Live Preview for Synchronized Total Target */}
+              {!categoryId && parseFloat(targetAmount) > 0 && (() => {
+                const amt = parseFloat(targetAmount);
+                let d = 0, w = 0, m = 0;
+                if (period === 'daily') {
+                  d = amt;
+                  w = amt * 7;
+                  m = amt * 30;
+                } else if (period === 'weekly') {
+                  d = Math.round(amt / 7);
+                  w = amt;
+                  m = Math.round(d * 30);
+                } else if (period === 'monthly') {
+                  d = Math.round(amt / 30);
+                  w = Math.round(d * 7);
+                  m = amt;
+                }
+                return (
+                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/90 space-y-2 text-xs">
+                    <p className="font-bold text-slate-700 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                      Otomatis Disinkronkan:
+                    </p>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div className={`p-2 rounded-lg border ${period === 'daily' ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-slate-200'}`}>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase">Harian</p>
+                        <p className="font-bold text-slate-800 text-xs mt-0.5">{formatRupiah(d)}</p>
+                      </div>
+                      <div className={`p-2 rounded-lg border ${period === 'weekly' ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-slate-200'}`}>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase">Mingguan</p>
+                        <p className="font-bold text-slate-800 text-xs mt-0.5">{formatRupiah(w)}</p>
+                      </div>
+                      <div className={`p-2 rounded-lg border ${period === 'monthly' ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-slate-200'}`}>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase">Bulanan</p>
+                        <p className="font-bold text-slate-800 text-xs mt-0.5">{formatRupiah(m)}</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1.5">
