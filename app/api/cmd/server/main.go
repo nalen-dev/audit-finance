@@ -40,6 +40,7 @@ func main() {
 	catHandler := handler.NewCategoryHandler(db)
 	txHandler := handler.NewTransactionHandler(db)
 	budgetHandler := handler.NewBudgetHandler(db)
+	goalHandler := handler.NewGoalHandler(db)
 	analyticsHandler := handler.NewAnalyticsHandler(db)
 
 	r := chi.NewRouter()
@@ -81,6 +82,7 @@ func main() {
 		protected.Get("/api/wallets", walletHandler.List)
 		protected.Post("/api/wallets", walletHandler.Create)
 		protected.Put("/api/wallets/{id}", walletHandler.Update)
+		protected.Put("/api/wallets/{id}/default", walletHandler.SetDefault)
 		protected.Delete("/api/wallets/{id}", walletHandler.Delete)
 
 		// Categories
@@ -99,6 +101,13 @@ func main() {
 		protected.Get("/api/budgets", budgetHandler.List)
 		protected.Post("/api/budgets", budgetHandler.Set)
 		protected.Delete("/api/budgets/{id}", budgetHandler.Delete)
+
+		// Goals (Custom Savings Targets)
+		protected.Get("/api/goals", goalHandler.List)
+		protected.Post("/api/goals", goalHandler.Create)
+		protected.Put("/api/goals/{id}", goalHandler.Update)
+		protected.Post("/api/goals/{id}/progress", goalHandler.UpdateProgress)
+		protected.Delete("/api/goals/{id}", goalHandler.Delete)
 
 		// Analytics
 		protected.Get("/api/analytics/summary", analyticsHandler.GetSummary)

@@ -32,6 +32,7 @@ func (h *AnalyticsHandler) GetSummary(w http.ResponseWriter, r *http.Request) {
 	summary := model.DashboardSummary{
 		Wallets:            make([]model.Wallet, 0),
 		RecentTransactions: make([]model.Transaction, 0),
+		Goals:              make([]model.SavingsGoal, 0),
 		OverspendingAlerts: make([]model.OverspendingAlert, 0),
 	}
 
@@ -73,37 +74,27 @@ func (h *AnalyticsHandler) GetSummary(w http.ResponseWriter, r *http.Request) {
 		  AND transaction_date <= CURRENT_DATE
 	`, userID, cycle.StartDateStr).Scan(&summary.MonthlyIncome, &summary.MonthlyExpense)
 
-	// 4. Budgets (Daily, Weekly, Monthly)
-	budgets := h.getBudgetsWithSpent(userID, cycle)
+	// 4. Budgets (Daily Target & Daily Category Budgets)
+	budgets := h.getBudgetsWithSpent(userID)
 	for i := range budgets {
 		b := budgets[i]
-		if b.CategoryID == nil { // Total spending budget
-			switch b.Period {
-			case "daily":
-				summary.DailyBudget = &b
-				summary.DailyTarget = b.TargetAmount
-				summary.MoneyToSpendToday = b.RemainingAmount
-			case "weekly":
-				summary.WeeklyBudget = &b
-				summary.WeeklyTarget = b.TargetAmount
-			case "monthly":
-				summary.MonthlyBudget = &b
-				summary.MonthlyTarget = b.TargetAmount
-				summary.MoneyToSpendMonth = b.RemainingAmount
-			}
+		if b.CategoryID == nil && b.Period == "daily" { // Total daily spending budget
+			summary.DailyBudget = &b
+			summary.DailyTarget = b.TargetAmount
+			summary.MoneyToSpendToday = b.RemainingAmount
 		}
 
 		if b.IsWarning || b.IsOverspent {
-			name := "Total Pengeluaran"
+			name := "Total Pengeluaran Harian"
 			if b.CategoryName != nil {
 				name = *b.CategoryName
 			}
-			msg := fmt.Sprintf("Pengeluaran %s periode %s telah mencapai %.1f%% dari target.", name, b.Period, b.Percentage)
+			msg := fmt.Sprintf("Pengeluaran %s hari ini telah mencapai %.1f%% dari target harian.", name, b.Percentage)
 			if b.IsOverspent {
-				msg = fmt.Sprintf("PERINGATAN OVERSPENDING: Pengeluaran %s periode %s telah melampaui target (%.1f%%)!", name, b.Period, b.Percentage)
+				msg = fmt.Sprintf("PERINGATAN OVERSPENDING: Pengeluaran %s hari ini telah melampaui batas harian (%.1f%%)!", name, b.Percentage)
 			}
 			summary.OverspendingAlerts = append(summary.OverspendingAlerts, model.OverspendingAlert{
-				Title:      fmt.Sprintf("Alert %s (%s)", name, b.Period),
+				Title:      fmt.Sprintf("Alert %s", name),
 				Message:    msg,
 				Spent:      b.SpentAmount,
 				Target:     b.TargetAmount,
@@ -168,15 +159,10 @@ func (h *AnalyticsHandler) GetSummary(w http.ResponseWriter, r *http.Request) {
 
 	// Aturan Siklus Keuangan:
 	// "Sisa kuota siklus ini adalah target harian x sisa hari. Sisa uangnya dimasukkan ke tabungan aman"
-	var effectiveDailyTarget float64 = summary.DailyTarget
-	if effectiveDailyTarget == 0 && summary.MonthlyTarget > 0 && cycle.TotalDays > 0 {
-		effectiveDailyTarget = summary.MonthlyTarget / float64(cycle.TotalDays)
-	}
-
-	if effectiveDailyTarget > 0 {
+	if summary.DailyTarget > 0 {
 		// Sisa kuota yang dibutuhkan sampai cutoff gajian:
 		// (target harian * sisa hari) dikurangi pengeluaran belanja hari ini yang sudah terpakai
-		neededForCycle := (float64(cycle.DaysRemaining) * effectiveDailyTarget) - summary.TodayExpense
+		neededForCycle := (float64(cycle.DaysRemaining) * summary.DailyTarget) - summary.TodayExpense
 		if neededForCycle < 0 {
 			neededForCycle = 0
 		}
@@ -226,8 +212,9 @@ func (h *AnalyticsHandler) GetSummary(w http.ResponseWriter, r *http.Request) {
 	txRows, err := h.db.QueryContext(r.Context(), `
 		SELECT 
 			t.id, t.user_id, t.wallet_id, t.category_id, t.destination_wallet_id,
-			t.amount, t.type, t.source, t.use_savings, t.use_vault, t.transaction_date, t.transaction_time, t.note,
-			t.created_at, t.updated_at,
+			t.amount, t.type, t.source, t.use_savings, t.use_vault, t.transaction_date,
+			COALESCE(TO_CHAR(t.transaction_time, 'HH24:MI:SS'), '00:00:00') as transaction_time,
+			t.note, t.created_at, t.updated_at,
 			w.name as wallet_name,
 			COALESCE(c.name, 'Transfer Dompet') as category_name, 
 			COALESCE(c.icon, 'arrow-left-right') as category_icon, 
@@ -274,10 +261,15 @@ func (h *AnalyticsHandler) GetSummary(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 8. Custom Savings Goals
+	if goals, err := FetchUserSavingsGoals(r.Context(), h.db, userID); err == nil {
+		summary.Goals = goals
+	}
+
 	respondJSON(w, http.StatusOK, summary)
 }
 
-func (h *AnalyticsHandler) getBudgetsWithSpent(userID uuid.UUID, cycle service.CycleRange) []model.Budget {
+func (h *AnalyticsHandler) getBudgetsWithSpent(userID uuid.UUID) []model.Budget {
 	query := `
 		SELECT 
 			b.id, b.user_id, b.category_id, b.period, b.target_amount, b.alert_threshold_percentage,
@@ -285,7 +277,7 @@ func (h *AnalyticsHandler) getBudgetsWithSpent(userID uuid.UUID, cycle service.C
 			c.name as category_name
 		FROM budgets b
 		LEFT JOIN categories c ON b.category_id = c.id
-		WHERE b.user_id = $1
+		WHERE b.user_id = $1 AND b.period = 'daily'
 	`
 	rows, err := h.db.Query(query, userID)
 	if err != nil {
@@ -305,17 +297,7 @@ func (h *AnalyticsHandler) getBudgetsWithSpent(userID uuid.UUID, cycle service.C
 			b.CategoryName = &catName.String
 		}
 
-		var dateFilter string
-		switch b.Period {
-		case "daily":
-			dateFilter = "transaction_date = CURRENT_DATE"
-		case "weekly":
-			dateFilter = "transaction_date >= date_trunc('week', CURRENT_DATE) AND transaction_date <= CURRENT_DATE"
-		case "monthly":
-			dateFilter = "transaction_date >= '" + cycle.StartDateStr + "'::date AND transaction_date <= CURRENT_DATE"
-		}
-
-		spendQuery := `SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = $1 AND type = 'expense' AND (use_savings IS FALSE OR use_savings IS NULL) AND (use_vault IS FALSE OR use_vault IS NULL) AND ` + dateFilter
+		spendQuery := `SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = $1 AND type = 'expense' AND (use_savings IS FALSE OR use_savings IS NULL) AND (use_vault IS FALSE OR use_vault IS NULL) AND transaction_date = CURRENT_DATE`
 		spendArgs := []interface{}{userID}
 
 		if b.CategoryID != nil {

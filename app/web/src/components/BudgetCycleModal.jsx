@@ -178,7 +178,7 @@ export default function BudgetCycleModal({ isOpen, onClose, currentDay = 1, onSa
               <span>{cyclePreview.endStr}</span>
             </div>
             <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-              Semua ringkasan pemasukan, pengeluaran, Money to Spend, dan target bulanan akan otomatis terhitung dalam periode di atas.
+              Semua ringkasan pemasukan, pengeluaran, sisa kuota siklus, dan Tabungan Aman akan otomatis terhitung dalam periode di atas.
             </p>
           </div>
 

@@ -3,16 +3,13 @@ package handler
 import (
 	"database/sql"
 	"encoding/json"
-	"math"
 	"net/http"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
 	"finance-audit/api/internal/middleware"
 	"finance-audit/api/internal/model"
-	"finance-audit/api/internal/service"
 )
 
 type BudgetHandler struct {
@@ -45,12 +42,8 @@ func (h *BudgetHandler) List(w http.ResponseWriter, r *http.Request) {
 		FROM budgets b
 		LEFT JOIN categories c ON b.category_id = c.id
 		WHERE b.user_id = $1
-		ORDER BY 
-			CASE b.period 
-				WHEN 'daily' THEN 1 
-				WHEN 'weekly' THEN 2 
-				WHEN 'monthly' THEN 3 
-			END
+		  AND b.period = 'daily'
+		ORDER BY (b.category_id IS NOT NULL) ASC, c.name ASC
 	`
 	rows, err := h.db.QueryContext(r.Context(), query, userID)
 	if err != nil {
@@ -58,10 +51,6 @@ func (h *BudgetHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-
-	var cycleStartDay int = 1
-	_ = h.db.QueryRowContext(r.Context(), `SELECT COALESCE(budget_cycle_start_day, 1) FROM users WHERE id = $1`, userID).Scan(&cycleStartDay)
-	cycle := service.CalculateBudgetCycle(cycleStartDay, time.Now())
 
 	budgets := make([]model.Budget, 0)
 	for rows.Next() {
@@ -78,18 +67,7 @@ func (h *BudgetHandler) List(w http.ResponseWriter, r *http.Request) {
 			b.CategoryName = &catName.String
 		}
 
-		// Calculate spent amount based on period
-		var dateFilter string
-		switch b.Period {
-		case "daily":
-			dateFilter = "transaction_date = CURRENT_DATE"
-		case "weekly":
-			dateFilter = "transaction_date >= date_trunc('week', CURRENT_DATE) AND transaction_date <= CURRENT_DATE"
-		case "monthly":
-			dateFilter = "transaction_date >= '" + cycle.StartDateStr + "'::date AND transaction_date <= CURRENT_DATE"
-		}
-
-		spendQuery := `SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = $1 AND type = 'expense' AND (use_savings IS FALSE OR use_savings IS NULL) AND (use_vault IS FALSE OR use_vault IS NULL) AND ` + dateFilter
+		spendQuery := `SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = $1 AND type = 'expense' AND (use_savings IS FALSE OR use_savings IS NULL) AND (use_vault IS FALSE OR use_vault IS NULL) AND transaction_date = CURRENT_DATE`
 		spendArgs := []interface{}{userID}
 
 		if b.CategoryID != nil {
@@ -130,80 +108,56 @@ func (h *BudgetHandler) Set(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "Target amount must be greater than zero")
 		return
 	}
-	if req.Period != "daily" && req.Period != "weekly" && req.Period != "monthly" {
-		respondError(w, http.StatusBadRequest, "Period must be 'daily', 'weekly', or 'monthly'")
+	if req.Period == "" {
+		req.Period = "daily"
+	}
+	if req.Period != "daily" {
+		respondError(w, http.StatusBadRequest, "Target anggaran pengeluaran hanya menggunakan periode harian ('daily')")
 		return
 	}
 	if req.AlertThresholdPercentage <= 0 || req.AlertThresholdPercentage > 100 {
 		req.AlertThresholdPercentage = 80
 	}
 
+	var b model.Budget
+	var err error
 	if req.CategoryID == nil {
-		var cycleStartDay int = 1
-		_ = h.db.QueryRowContext(r.Context(), `SELECT COALESCE(budget_cycle_start_day, 1) FROM users WHERE id = $1`, userID).Scan(&cycleStartDay)
-		cycle := service.CalculateBudgetCycle(cycleStartDay, time.Now())
-
-		totalDays := float64(cycle.TotalDays)
-		if totalDays <= 0 {
-			totalDays = 30
-		}
-
-		var dailyTarget, weeklyTarget, monthlyTarget float64
-		switch req.Period {
-		case "monthly":
-			dailyTarget = math.Round((req.TargetAmount / totalDays) * 100) / 100
-			weeklyTarget = math.Round(dailyTarget * 7.0)
-			monthlyTarget = req.TargetAmount
-		case "daily":
-			dailyTarget = req.TargetAmount
-			weeklyTarget = math.Round(dailyTarget * 7.0)
-			monthlyTarget = math.Round(dailyTarget * totalDays)
-		case "weekly":
-			dailyTarget = math.Round((req.TargetAmount / 7.0) * 100) / 100
-			weeklyTarget = req.TargetAmount
-			monthlyTarget = math.Round(dailyTarget * totalDays)
-		}
+		// Remove any legacy weekly/monthly total targets if still present
+		_, _ = h.db.ExecContext(r.Context(), `DELETE FROM budgets WHERE user_id = $1 AND category_id IS NULL AND period <> 'daily'`, userID)
 
 		upsertQuery := `
 			INSERT INTO budgets (user_id, category_id, period, target_amount, alert_threshold_percentage)
-			VALUES ($1, NULL, $2, $3, $4)
+			VALUES ($1, NULL, 'daily', $2, $3)
 			ON CONFLICT (user_id, category_id, period)
 			DO UPDATE SET target_amount = EXCLUDED.target_amount, alert_threshold_percentage = EXCLUDED.alert_threshold_percentage, updated_at = CURRENT_TIMESTAMP
+			RETURNING id, user_id, category_id, period, target_amount, alert_threshold_percentage, created_at, updated_at
 		`
-		_, _ = h.db.ExecContext(r.Context(), upsertQuery, userID, "daily", dailyTarget, req.AlertThresholdPercentage)
-		_, _ = h.db.ExecContext(r.Context(), upsertQuery, userID, "weekly", weeklyTarget, req.AlertThresholdPercentage)
-		_, _ = h.db.ExecContext(r.Context(), upsertQuery, userID, "monthly", monthlyTarget, req.AlertThresholdPercentage)
-
-		var b model.Budget
-		_ = h.db.QueryRowContext(r.Context(), `
-			SELECT id, user_id, category_id, period, target_amount, alert_threshold_percentage, created_at, updated_at
-			FROM budgets
-			WHERE user_id = $1 AND category_id IS NULL AND period = $2
-		`, userID, req.Period).Scan(
-			&b.ID, &b.UserID, &b.CategoryID, &b.Period, &b.TargetAmount, &b.AlertThresholdPercentage, &b.CreatedAt, &b.UpdatedAt,
+		err = h.db.QueryRowContext(
+			r.Context(), upsertQuery,
+			userID, req.TargetAmount, req.AlertThresholdPercentage,
+		).Scan(
+			&b.ID, &b.UserID, &b.CategoryID, &b.Period, &b.TargetAmount, &b.AlertThresholdPercentage,
+			&b.CreatedAt, &b.UpdatedAt,
 		)
-		respondJSON(w, http.StatusOK, b)
-		return
+	} else {
+		query := `
+			INSERT INTO budgets (user_id, category_id, period, target_amount, alert_threshold_percentage)
+			VALUES ($1, $2, 'daily', $3, $4)
+			ON CONFLICT (user_id, category_id, period)
+			DO UPDATE SET 
+				target_amount = EXCLUDED.target_amount,
+				alert_threshold_percentage = EXCLUDED.alert_threshold_percentage,
+				updated_at = CURRENT_TIMESTAMP
+			RETURNING id, user_id, category_id, period, target_amount, alert_threshold_percentage, created_at, updated_at
+		`
+		err = h.db.QueryRowContext(
+			r.Context(), query,
+			userID, req.CategoryID, req.TargetAmount, req.AlertThresholdPercentage,
+		).Scan(
+			&b.ID, &b.UserID, &b.CategoryID, &b.Period, &b.TargetAmount, &b.AlertThresholdPercentage,
+			&b.CreatedAt, &b.UpdatedAt,
+		)
 	}
-
-	query := `
-		INSERT INTO budgets (user_id, category_id, period, target_amount, alert_threshold_percentage)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (user_id, category_id, period)
-		DO UPDATE SET 
-			target_amount = EXCLUDED.target_amount,
-			alert_threshold_percentage = EXCLUDED.alert_threshold_percentage,
-			updated_at = CURRENT_TIMESTAMP
-		RETURNING id, user_id, category_id, period, target_amount, alert_threshold_percentage, created_at, updated_at
-	`
-	var b model.Budget
-	err := h.db.QueryRowContext(
-		r.Context(), query,
-		userID, req.CategoryID, req.Period, req.TargetAmount, req.AlertThresholdPercentage,
-	).Scan(
-		&b.ID, &b.UserID, &b.CategoryID, &b.Period, &b.TargetAmount, &b.AlertThresholdPercentage,
-		&b.CreatedAt, &b.UpdatedAt,
-	)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to set budget: "+err.Error())
 		return
@@ -226,15 +180,7 @@ func (h *BudgetHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var isTotalSpending bool
-	_ = h.db.QueryRowContext(r.Context(), `SELECT (category_id IS NULL) FROM budgets WHERE id = $1 AND user_id = $2`, budgetID, userID).Scan(&isTotalSpending)
-
-	var res sql.Result
-	if isTotalSpending {
-		res, err = h.db.ExecContext(r.Context(), `DELETE FROM budgets WHERE user_id = $1 AND category_id IS NULL`, userID)
-	} else {
-		res, err = h.db.ExecContext(r.Context(), `DELETE FROM budgets WHERE id = $1 AND user_id = $2`, budgetID, userID)
-	}
+	res, err := h.db.ExecContext(r.Context(), `DELETE FROM budgets WHERE id = $1 AND user_id = $2`, budgetID, userID)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to delete budget")
 		return

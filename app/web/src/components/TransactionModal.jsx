@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, ArrowDownRight, ArrowUpRight, ArrowLeftRight, ShieldCheck, PiggyBank, Sparkles } from 'lucide-react';
+import { X, ArrowDownRight, ArrowUpRight, ArrowLeftRight, ShieldCheck, PiggyBank } from 'lucide-react';
 import { api } from '../services/api';
+import { getLocalDateString, getLocalTimeString, formatTime, emitFinanceUpdated } from '../utils/formatters';
 import { useDialog } from '../context/DialogContext';
 import { useAuth } from '../context/AuthContext';
 
@@ -13,7 +14,8 @@ export default function TransactionModal({ isOpen, onClose, onSuccess, defaultTy
   const [destinationWalletId, setDestinationWalletId] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [expenseFund, setExpenseFund] = useState('budget'); // 'budget', 'savings', 'vault'
-  const [transactionDate, setTransactionDate] = useState(new Date().toISOString().split('T')[0]);
+  const [transactionDate, setTransactionDate] = useState(() => getLocalDateString());
+  const [transactionTime, setTransactionTime] = useState(() => getLocalTimeString());
   const [note, setNote] = useState('');
   
   const [wallets, setWallets] = useState([]);
@@ -31,23 +33,28 @@ export default function TransactionModal({ isOpen, onClose, onSuccess, defaultTy
         setDestinationWalletId(initialData.destination_wallet_id || '');
         setCategoryId(initialData.category_id || '');
         setExpenseFund(initialData.use_vault ? 'vault' : initialData.use_savings ? 'savings' : 'budget');
-        setTransactionDate(initialData.transaction_date ? initialData.transaction_date.split('T')[0] : new Date().toISOString().split('T')[0]);
+        setTransactionDate(initialData.transaction_date ? initialData.transaction_date.split('T')[0] : getLocalDateString());
+        setTransactionTime(formatTime(initialData.transaction_time) || getLocalTimeString());
         setNote(initialData.note || '');
       } else {
         setType(defaultType);
         setAmount('');
         setNote('');
         setExpenseFund('budget');
-        setTransactionDate(new Date().toISOString().split('T')[0]);
+        setTransactionDate(getLocalDateString());
+        setTransactionTime(getLocalTimeString());
       }
       
       Promise.all([api.getWallets(), api.getCategories()])
         .then(([walletList, catList]) => {
-          setWallets(walletList);
-          if (!initialData && walletList.length > 0) {
-            const defWallet = walletList.find((w) => w.is_default) || walletList[0];
+          const sortedWallets = [...walletList].sort(
+            (a, b) => (b.is_default ? 1 : 0) - (a.is_default ? 1 : 0) || a.name.localeCompare(b.name)
+          );
+          setWallets(sortedWallets);
+          if (!initialData && sortedWallets.length > 0) {
+            const defWallet = sortedWallets[0];
             setWalletId(defWallet.id);
-            const otherWallet = walletList.find((w) => w.id !== defWallet.id) || walletList[0];
+            const otherWallet = sortedWallets.find((w) => w.id !== defWallet.id) || sortedWallets[0];
             setDestinationWalletId(otherWallet.id);
           }
           setCategories(catList);
@@ -98,6 +105,7 @@ export default function TransactionModal({ isOpen, onClose, onSuccess, defaultTy
     setError('');
 
     try {
+      const formattedTime = transactionTime ? (transactionTime.length === 5 ? `${transactionTime}:00` : transactionTime) : getLocalTimeString() + ':00';
       if (type === 'transfer') {
         const payload = {
           wallet_id: walletId,
@@ -106,6 +114,7 @@ export default function TransactionModal({ isOpen, onClose, onSuccess, defaultTy
           type: 'transfer',
           source: initialData?.source || 'web',
           transaction_date: transactionDate,
+          transaction_time: formattedTime,
           note: note ? note : 'Transfer saldo',
         };
         if (initialData?.id) {
@@ -123,6 +132,7 @@ export default function TransactionModal({ isOpen, onClose, onSuccess, defaultTy
           use_savings: type === 'expense' && expenseFund === 'savings',
           use_vault: type === 'expense' && expenseFund === 'vault',
           transaction_date: transactionDate,
+          transaction_time: formattedTime,
           note: note ? note : null,
         };
         if (initialData?.id) {
@@ -139,6 +149,7 @@ export default function TransactionModal({ isOpen, onClose, onSuccess, defaultTy
             : 'Transaksi berhasil disimpan!'),
         'success'
       );
+      emitFinanceUpdated();
       onSuccess();
       onClose();
     } catch (err) {
@@ -237,7 +248,7 @@ export default function TransactionModal({ isOpen, onClose, onSuccess, defaultTy
                 >
                   {wallets.map((w) => (
                     <option key={w.id} value={w.id}>
-                      {w.name} (Rp {w.current_balance.toLocaleString('id-ID')})
+                      {w.is_default ? '★ ' : ''}{w.name}{w.is_default ? ' (Default)' : ''} (Rp {w.current_balance.toLocaleString('id-ID')})
                     </option>
                   ))}
                 </select>
@@ -251,7 +262,7 @@ export default function TransactionModal({ isOpen, onClose, onSuccess, defaultTy
                 >
                   {wallets.map((w) => (
                     <option key={w.id} value={w.id}>
-                      {w.name} (Rp {w.current_balance.toLocaleString('id-ID')})
+                      {w.is_default ? '★ ' : ''}{w.name}{w.is_default ? ' (Default)' : ''} (Rp {w.current_balance.toLocaleString('id-ID')})
                     </option>
                   ))}
                 </select>
@@ -267,7 +278,7 @@ export default function TransactionModal({ isOpen, onClose, onSuccess, defaultTy
               >
                 {wallets.map((w) => (
                   <option key={w.id} value={w.id}>
-                    {w.name} (Saldo: Rp {w.current_balance.toLocaleString('id-ID')})
+                    {w.is_default ? '★ ' : ''}{w.name}{w.is_default ? ' (Default)' : ''} (Saldo: Rp {w.current_balance.toLocaleString('id-ID')})
                   </option>
                 ))}
               </select>
@@ -357,15 +368,28 @@ export default function TransactionModal({ isOpen, onClose, onSuccess, defaultTy
             </div>
           )}
 
-          {/* Date Selector */}
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1.5">Tanggal</label>
-            <input
-              type="date"
-              value={transactionDate}
-              onChange={(e) => setTransactionDate(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:border-emerald-500"
-            />
+          {/* Date & Time Selectors */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">Tanggal</label>
+              <input
+                type="date"
+                value={transactionDate}
+                onChange={(e) => setTransactionDate(e.target.value)}
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:border-emerald-500"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">Jam</label>
+              <input
+                type="time"
+                value={transactionTime}
+                onChange={(e) => setTransactionTime(e.target.value)}
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:border-emerald-500"
+                required
+              />
+            </div>
           </div>
 
           {/* Note Input */}

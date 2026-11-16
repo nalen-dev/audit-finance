@@ -98,12 +98,32 @@ func (h *WalletHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var wallet model.Wallet
+	tx, err := h.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Database transaction error")
+		return
+	}
+	defer tx.Rollback()
+
+	var existingCount int
+	_ = tx.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM wallets WHERE user_id = $1`, userID).Scan(&existingCount)
+	if existingCount == 0 {
+		req.IsDefault = true
+	}
+
+	if req.IsDefault {
+		if _, err := tx.ExecContext(r.Context(), `UPDATE wallets SET is_default = FALSE, updated_at = CURRENT_TIMESTAMP WHERE user_id = $1 AND is_default = TRUE`, userID); err != nil {
+			respondError(w, http.StatusInternalServerError, "Failed to update existing default wallet")
+			return
+		}
+	}
+
 	query := `
 		INSERT INTO wallets (user_id, name, type, currency, initial_balance, current_balance, color, icon, is_default)
 		VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8)
 		RETURNING id, user_id, name, type, currency, initial_balance, current_balance, color, icon, is_default, created_at, updated_at
 	`
-	err := h.db.QueryRowContext(
+	err = tx.QueryRowContext(
 		r.Context(), query,
 		userID, req.Name, req.Type, req.Currency, req.InitialBalance, req.Color, req.Icon, req.IsDefault,
 	).Scan(
@@ -113,6 +133,11 @@ func (h *WalletHandler) Create(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to create wallet")
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to commit wallet creation")
 		return
 	}
 
@@ -138,6 +163,49 @@ func (h *WalletHandler) Update(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+	if req.Name == "" {
+		respondError(w, http.StatusBadRequest, "Wallet name is required")
+		return
+	}
+	if req.Type == "" {
+		req.Type = "bank"
+	}
+	if req.Color == "" {
+		req.Color = "#10B981"
+	}
+	if req.Icon == "" {
+		req.Icon = "wallet"
+	}
+
+	tx, err := h.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Database transaction error")
+		return
+	}
+	defer tx.Rollback()
+
+	var currentDefault bool
+	err = tx.QueryRowContext(r.Context(), `SELECT is_default FROM wallets WHERE id = $1 AND user_id = $2`, walletID, userID).Scan(&currentDefault)
+	if err == sql.ErrNoRows {
+		respondError(w, http.StatusNotFound, "Wallet not found")
+		return
+	} else if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to check wallet")
+		return
+	}
+
+	if req.IsDefault {
+		if _, err := tx.ExecContext(r.Context(), `UPDATE wallets SET is_default = FALSE, updated_at = CURRENT_TIMESTAMP WHERE user_id = $1 AND id <> $2 AND is_default = TRUE`, userID, walletID); err != nil {
+			respondError(w, http.StatusInternalServerError, "Failed to clear previous default wallet")
+			return
+		}
+	} else if currentDefault {
+		var otherDefaultCount int
+		_ = tx.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM wallets WHERE user_id = $1 AND id <> $2 AND is_default = TRUE`, userID, walletID).Scan(&otherDefaultCount)
+		if otherDefaultCount == 0 {
+			req.IsDefault = true
+		}
+	}
 
 	query := `
 		UPDATE wallets
@@ -146,7 +214,7 @@ func (h *WalletHandler) Update(w http.ResponseWriter, r *http.Request) {
 		RETURNING id, user_id, name, type, currency, initial_balance, current_balance, color, icon, is_default, created_at, updated_at
 	`
 	var wallet model.Wallet
-	err = h.db.QueryRowContext(
+	err = tx.QueryRowContext(
 		r.Context(), query,
 		req.Name, req.Type, req.Color, req.Icon, req.IsDefault, walletID, userID,
 	).Scan(
@@ -156,6 +224,67 @@ func (h *WalletHandler) Update(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to update wallet")
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to commit wallet update")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, wallet)
+}
+
+func (h *WalletHandler) SetDefault(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserIDFromContext(r.Context())
+	if !ok {
+		respondError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	walletIDStr := chi.URLParam(r, "id")
+	walletID, err := uuid.Parse(walletIDStr)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid wallet ID")
+		return
+	}
+
+	tx, err := h.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Database transaction error")
+		return
+	}
+	defer tx.Rollback()
+
+	var exists bool
+	if err := tx.QueryRowContext(r.Context(), `SELECT EXISTS(SELECT 1 FROM wallets WHERE id = $1 AND user_id = $2)`, walletID, userID).Scan(&exists); err != nil || !exists {
+		respondError(w, http.StatusNotFound, "Wallet not found")
+		return
+	}
+
+	if _, err := tx.ExecContext(r.Context(), `UPDATE wallets SET is_default = FALSE, updated_at = CURRENT_TIMESTAMP WHERE user_id = $1 AND is_default = TRUE`, userID); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to clear existing default wallet")
+		return
+	}
+
+	var wallet model.Wallet
+	query := `
+		UPDATE wallets
+		SET is_default = TRUE, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1 AND user_id = $2
+		RETURNING id, user_id, name, type, currency, initial_balance, current_balance, color, icon, is_default, created_at, updated_at
+	`
+	if err := tx.QueryRowContext(r.Context(), query, walletID, userID).Scan(
+		&wallet.ID, &wallet.UserID, &wallet.Name, &wallet.Type, &wallet.Currency,
+		&wallet.InitialBalance, &wallet.CurrentBalance, &wallet.Color, &wallet.Icon,
+		&wallet.IsDefault, &wallet.CreatedAt, &wallet.UpdatedAt,
+	); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to set default wallet")
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to commit default wallet")
 		return
 	}
 
@@ -176,11 +305,22 @@ func (h *WalletHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if transactions exist
+	var isDefault bool
+	err = h.db.QueryRowContext(r.Context(), `SELECT is_default FROM wallets WHERE id = $1 AND user_id = $2`, walletID, userID).Scan(&isDefault)
+	if err == sql.ErrNoRows {
+		respondError(w, http.StatusNotFound, "Wallet not found")
+		return
+	}
+	if isDefault {
+		respondError(w, http.StatusBadRequest, "Dompet default tidak dapat dihapus. Pilih dompet lain sebagai default terlebih dahulu.")
+		return
+	}
+
+	// Check if transactions exist (source or transfer destination)
 	var count int
-	_ = h.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM transactions WHERE wallet_id = $1`, walletID).Scan(&count)
+	_ = h.db.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM transactions WHERE wallet_id = $1 OR destination_wallet_id = $1`, walletID).Scan(&count)
 	if count > 0 {
-		respondError(w, http.StatusBadRequest, "Cannot delete wallet with existing transactions")
+		respondError(w, http.StatusBadRequest, "Dompet dengan riwayat transaksi tidak dapat dihapus.")
 		return
 	}
 

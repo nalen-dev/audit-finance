@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -103,8 +104,9 @@ func (h *TransactionHandler) List(w http.ResponseWriter, r *http.Request) {
 	query := `
 		SELECT 
 			t.id, t.user_id, t.wallet_id, t.category_id, t.destination_wallet_id,
-			t.amount, t.type, t.source, t.use_savings, t.use_vault, t.transaction_date, t.transaction_time, t.note,
-			t.created_at, t.updated_at,
+			t.amount, t.type, t.source, t.use_savings, t.use_vault, t.transaction_date,
+			COALESCE(TO_CHAR(t.transaction_time, 'HH24:MI:SS'), '00:00:00') as transaction_time,
+			t.note, t.created_at, t.updated_at,
 			w.name as wallet_name,
 			COALESCE(c.name, 'Transfer Dompet') as category_name, 
 			COALESCE(c.icon, 'arrow-left-right') as category_icon, 
@@ -219,8 +221,15 @@ func (h *TransactionHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if req.TransactionDate == "" {
 		req.TransactionDate = time.Now().Format("2006-01-02")
 	}
-	if req.TransactionTime == "" {
+	normalizedTime, err := normalizeTransactionTime(req.TransactionTime)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if normalizedTime == "" {
 		req.TransactionTime = time.Now().Format("15:04:05")
+	} else {
+		req.TransactionTime = normalizedTime
 	}
 
 	tx, err := h.db.BeginTx(r.Context(), nil)
@@ -418,18 +427,26 @@ func (h *TransactionHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 3. Update transaction record
+	normalizedTime, err := normalizeTransactionTime(req.TransactionTime)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	updateQuery := `
 		UPDATE transactions
 		SET wallet_id = $1, category_id = $2, destination_wallet_id = $3,
 		    amount = $4, type = $5, use_savings = $6, use_vault = $7,
-		    transaction_date = $8, note = $9, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $10 AND user_id = $11
+		    transaction_date = COALESCE(NULLIF($8, '')::date, transaction_date),
+		    transaction_time = COALESCE(NULLIF($9, '')::time, transaction_time),
+		    note = $10, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $11 AND user_id = $12
 	`
 	_, err = tx.ExecContext(
 		r.Context(), updateQuery,
 		req.WalletID, req.CategoryID, req.DestinationWalletID,
 		req.Amount, req.Type, req.UseSavings, req.UseVault,
-		req.TransactionDate, req.Note, txID, userID,
+		req.TransactionDate, normalizedTime, req.Note, txID, userID,
 	)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to update transaction: "+err.Error())
@@ -463,4 +480,17 @@ func (h *TransactionHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, map[string]string{"message": "Transaction updated successfully"})
+}
+
+func normalizeTransactionTime(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", nil
+	}
+	for _, layout := range []string{"15:04:05", "15:04"} {
+		if parsed, err := time.Parse(layout, trimmed); err == nil {
+			return parsed.Format("15:04:05"), nil
+		}
+	}
+	return "", fmt.Errorf("Format jam transaksi tidak valid (gunakan JJ:MM)")
 }

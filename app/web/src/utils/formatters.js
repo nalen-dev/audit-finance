@@ -11,12 +11,38 @@ export function formatRupiah(amount) {
 
 export function formatDate(dateString) {
   if (!dateString) return '-';
-  const date = new Date(dateString);
+  const normalized = dateString.includes('T') ? dateString : `${dateString}T00:00:00`;
+  const date = new Date(normalized);
+  if (isNaN(date.getTime())) return dateString;
   return new Intl.DateTimeFormat('id-ID', {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
   }).format(date);
+}
+
+export function formatTime(timeString) {
+  if (!timeString) return '';
+  const match = String(timeString).match(/(\d{2}):(\d{2})/);
+  if (!match) return '';
+  return `${match[1]}:${match[2]}`;
+}
+
+export function getLocalDateString(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function getLocalTimeString(date = new Date()) {
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mm = String(date.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+export function emitFinanceUpdated() {
+  window.dispatchEvent(new CustomEvent('finance:updated'));
 }
 
 export function getPercentColor(percentage) {

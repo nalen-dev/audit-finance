@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"finance-audit/api/internal/service"
 )
 
 type Bot struct {
@@ -309,7 +311,11 @@ func (b *Bot) handleStatus(chatID int64) {
 		return
 	}
 
-	// 1. Total balance
+	// 1. User Cycle & Total balance
+	var cycleStartDay int = 1
+	_ = b.db.QueryRow(`SELECT COALESCE(budget_cycle_start_day, 1) FROM users WHERE id = $1`, userID).Scan(&cycleStartDay)
+	cycle := service.CalculateBudgetCycle(cycleStartDay, time.Now())
+
 	var totalBalance float64
 	_ = b.db.QueryRow(`SELECT COALESCE(SUM(current_balance), 0) FROM wallets WHERE user_id = $1`, userID).Scan(&totalBalance)
 
@@ -318,37 +324,28 @@ func (b *Bot) handleStatus(chatID int64) {
 	_ = b.db.QueryRow(`
 		SELECT COALESCE(SUM(amount), 0)
 		FROM transactions
-		WHERE user_id = $1 AND type = 'expense' AND (use_savings IS FALSE OR use_savings IS NULL) AND transaction_date = CURRENT_DATE
+		WHERE user_id = $1 AND type = 'expense'
+		  AND (use_savings IS FALSE OR use_savings IS NULL)
+		  AND (use_vault IS FALSE OR use_vault IS NULL)
+		  AND transaction_date = CURRENT_DATE
 	`, userID).Scan(&todayExpense)
 
-	// 3. Targets (Daily & Monthly)
-	var dailyTarget, monthlyTarget float64
+	// 3. Daily Target
+	var dailyTarget float64
 	_ = b.db.QueryRow(`
 		SELECT target_amount FROM budgets WHERE user_id = $1 AND category_id IS NULL AND period = 'daily'
 	`, userID).Scan(&dailyTarget)
-	_ = b.db.QueryRow(`
-		SELECT target_amount FROM budgets WHERE user_id = $1 AND category_id IS NULL AND period = 'monthly'
-	`, userID).Scan(&monthlyTarget)
 
-	// 4. Monthly Regular Expense
-	var monthlyExpense float64
-	_ = b.db.QueryRow(`
-		SELECT COALESCE(SUM(amount), 0)
-		FROM transactions
-		WHERE user_id = $1 AND type = 'expense' AND (use_savings IS FALSE OR use_savings IS NULL)
-		  AND transaction_date >= date_trunc('month', CURRENT_DATE) AND transaction_date <= CURRENT_DATE
-	`, userID).Scan(&monthlyExpense)
-
-	// 5. Monthly savings pool & completed days
+	// 4. Monthly savings pool & completed days in cycle
 	var pastDays int
 	var startDate string
 	_ = b.db.QueryRow(`
 		SELECT 
-			COALESCE(CURRENT_DATE - GREATEST(date_trunc('month', CURRENT_DATE)::date, MIN(created_at)::date), 0),
-			COALESCE(GREATEST(date_trunc('month', CURRENT_DATE)::date, MIN(created_at)::date)::text, CURRENT_DATE::text)
+			COALESCE(CURRENT_DATE - GREATEST($2::date, MIN(created_at)::date), 0),
+			COALESCE(GREATEST($2::date, MIN(created_at)::date)::text, CURRENT_DATE::text)
 		FROM budgets
 		WHERE user_id = $1 AND category_id IS NULL
-	`, userID).Scan(&pastDays, &startDate)
+	`, userID, cycle.StartDateStr).Scan(&pastDays, &startDate)
 
 	if pastDays < 0 {
 		pastDays = 0
@@ -359,7 +356,9 @@ func (b *Bot) handleStatus(chatID int64) {
 		_ = b.db.QueryRow(`
 			SELECT COALESCE(SUM(amount), 0)
 			FROM transactions
-			WHERE user_id = $1 AND type = 'expense' AND (use_savings IS FALSE OR use_savings IS NULL)
+			WHERE user_id = $1 AND type = 'expense'
+			  AND (use_savings IS FALSE OR use_savings IS NULL)
+			  AND (use_vault IS FALSE OR use_vault IS NULL)
 			  AND transaction_date >= $2::date AND transaction_date < CURRENT_DATE
 		`, userID, startDate).Scan(&pastRegularExpense)
 	}
@@ -368,9 +367,11 @@ func (b *Bot) handleStatus(chatID int64) {
 	_ = b.db.QueryRow(`
 		SELECT COALESCE(SUM(amount), 0)
 		FROM transactions
-		WHERE user_id = $1 AND type = 'expense' AND use_savings IS TRUE
-		  AND transaction_date >= date_trunc('month', CURRENT_DATE) AND transaction_date <= CURRENT_DATE
-	`, userID).Scan(&monthlyEmergency)
+		WHERE user_id = $1 AND type = 'expense'
+		  AND use_savings IS TRUE
+		  AND (use_vault IS FALSE OR use_vault IS NULL)
+		  AND transaction_date >= $2::date AND transaction_date <= CURRENT_DATE
+	`, userID, cycle.StartDateStr).Scan(&monthlyEmergency)
 
 	var accumulatedDailySurplus float64
 	if dailyTarget > 0 && pastDays > 0 {
@@ -378,20 +379,15 @@ func (b *Bot) handleStatus(chatID int64) {
 	}
 
 	savingsPool := accumulatedDailySurplus - monthlyEmergency
-	remainingBudgetMonth := math.Max(0, monthlyTarget-monthlyExpense)
 
-	var moneyToSpendMonth float64
-	if savingsPool > 0 {
-		moneyToSpendMonth = math.Max(0, remainingBudgetMonth-savingsPool)
+	var moneyToSpendMonth, safeVault float64
+	if dailyTarget > 0 {
+		neededForCycle := math.Max(0, (float64(cycle.DaysRemaining)*dailyTarget)-todayExpense)
+		moneyToSpendMonth = math.Min(neededForCycle, totalBalance)
+		safeVault = math.Max(0, totalBalance-moneyToSpendMonth)
 	} else {
-		moneyToSpendMonth = remainingBudgetMonth
-	}
-
-	var safeVault float64
-	if monthlyTarget > 0 {
-		safeVault = math.Max(0, totalBalance-(moneyToSpendMonth+savingsPool))
-	} else {
-		safeVault = totalBalance
+		moneyToSpendMonth = totalBalance
+		safeVault = 0
 	}
 
 	moneyToSpendToday := dailyTarget - todayExpense
@@ -403,13 +399,14 @@ func (b *Bot) handleStatus(chatID int64) {
 💸 *Pengeluaran Hari Ini:* Rp %s
 
 ✨ *Money to Spend Hari Ini:* Rp %s
-📅 *Sisa Kuota Bulan Ini:* Rp %s
-🐖 *Tabungan Berjalan (Bulan Ini):* Rp %s
+📅 *Sisa Kuota Siklus (%d Hari):* Rp %s
+🐖 *Tabungan Berjalan (Siklus Ini):* Rp %s
 🛡 *Tabungan Aman / Vault:* Rp %s`,
 		formatIDR(totalBalance),
 		formatIDR(dailyTarget),
 		formatIDR(todayExpense),
 		formatIDR(moneyToSpendToday),
+		cycle.DaysRemaining,
 		formatIDR(moneyToSpendMonth),
 		formatIDR(savingsPool),
 		formatIDR(safeVault),
@@ -530,15 +527,16 @@ func (b *Bot) handleTransaction(chatID int64, text string) {
 	}
 	defer tx.Rollback()
 
+	now := time.Now()
 	var newTxID uuid.UUID
 	err = tx.QueryRow(`
 		INSERT INTO transactions (
 			user_id, wallet_id, category_id, amount, type, source, use_savings, use_vault,
 			transaction_date, transaction_time, note
 		) VALUES (
-			$1, $2, $3, $4, $5, 'telegram', $6, $7, CURRENT_DATE, CURRENT_TIME, $8
+			$1, $2, $3, $4, $5, 'telegram', $6, $7, $8, $9, $10
 		) RETURNING id
-	`, userID, walletID, catID, amount, txType, isSavings, isVault, noteToSave).Scan(&newTxID)
+	`, userID, walletID, catID, amount, txType, isSavings, isVault, now.Format("2006-01-02"), now.Format("15:04:05"), noteToSave).Scan(&newTxID)
 	if err != nil {
 		b.SendMessage(chatID, "❌ Gagal mencatat transaksi: "+err.Error())
 		return
@@ -659,7 +657,7 @@ func (b *Bot) getUserIDByChat(chatID int64) (uuid.UUID, error) {
 }
 
 func (b *Bot) matchWallet(userID uuid.UUID, note *string) (uuid.UUID, string, float64, error) {
-	rows, err := b.db.Query(`SELECT id, name, current_balance, is_default FROM wallets WHERE user_id = $1 ORDER BY is_default DESC`, userID)
+	rows, err := b.db.Query(`SELECT id, name, current_balance, is_default FROM wallets WHERE user_id = $1 ORDER BY is_default DESC, name ASC`, userID)
 	if err != nil {
 		return uuid.Nil, "", 0, err
 	}

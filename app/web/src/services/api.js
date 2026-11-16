@@ -33,6 +33,7 @@ export const api = {
   getWallets: () => request('/wallets'),
   createWallet: (body) => request('/wallets', { method: 'POST', body: JSON.stringify(body) }),
   updateWallet: (id, body) => request(`/wallets/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  setDefaultWallet: (id) => request(`/wallets/${id}/default`, { method: 'PUT' }),
   deleteWallet: (id) => request(`/wallets/${id}`, { method: 'DELETE' }),
 
   // Categories
@@ -50,6 +51,13 @@ export const api = {
   getBudgets: () => request('/budgets'),
   setBudget: (body) => request('/budgets', { method: 'POST', body: JSON.stringify(body) }),
   deleteBudget: (id) => request(`/budgets/${id}`, { method: 'DELETE' }),
+
+  // Goals (Custom Targets)
+  getGoals: () => request('/goals'),
+  createGoal: (body) => request('/goals', { method: 'POST', body: JSON.stringify(body) }),
+  updateGoal: (id, body) => request(`/goals/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  updateGoalProgress: (id, body) => request(`/goals/${id}/progress`, { method: 'POST', body: JSON.stringify(body) }),
+  deleteGoal: (id) => request(`/goals/${id}`, { method: 'DELETE' }),
 
   // Analytics
   getSummary: () => request('/analytics/summary'),

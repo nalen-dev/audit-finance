@@ -111,7 +111,7 @@ export default function ModeSelectionModal({ isOpen, onClose, canDismiss = true 
                     </li>
                     <li className="flex items-center gap-2 text-slate-400">
                       <span className="w-3.5 h-3.5 flex items-center justify-center font-bold text-slate-300">-</span>
-                      <span>Tanpa target harian/mingguan/bulanan</span>
+                      <span>Tanpa target anggaran &amp; tujuan</span>
                     </li>
                     <li className="flex items-center gap-2 text-slate-400">
                       <span className="w-3.5 h-3.5 flex items-center justify-center font-bold text-slate-300">-</span>
@@ -174,7 +174,7 @@ export default function ModeSelectionModal({ isOpen, onClose, canDismiss = true 
                     </li>
                     <li className="flex items-center gap-2">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                      <span>Target anggaran Harian, Mingguan, Bulanan</span>
+                      <span>Target harian &amp; target impian (Liburan, HP, dll.)</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />

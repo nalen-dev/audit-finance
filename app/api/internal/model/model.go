@@ -112,7 +112,25 @@ type DashboardSummary struct {
 	MonthlyBudget      *Budget             `json:"monthly_budget,omitempty"`
 	RecentTransactions []Transaction       `json:"recent_transactions"`
 	Wallets            []Wallet            `json:"wallets"`
+	Goals              []SavingsGoal       `json:"goals"`
 	OverspendingAlerts []OverspendingAlert `json:"overspending_alerts"`
+}
+
+type SavingsGoal struct {
+	ID              uuid.UUID `json:"id"`
+	UserID          uuid.UUID `json:"user_id"`
+	Name            string    `json:"name"`
+	TargetAmount    float64   `json:"target_amount"`
+	CurrentAmount   float64   `json:"current_amount"`
+	RemainingAmount float64   `json:"remaining_amount"`
+	Percentage      float64   `json:"percentage"`
+	IsCompleted     bool      `json:"is_completed"`
+	TargetDate      *string   `json:"target_date,omitempty"`
+	Icon            string    `json:"icon"`
+	Color           string    `json:"color"`
+	Note            *string   `json:"note,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 type OverspendingAlert struct {

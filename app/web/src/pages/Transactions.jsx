@@ -11,12 +11,13 @@ import {
   Send, 
   Globe, 
   Calendar, 
+  Clock,
   RotateCcw, 
   ChevronLeft, 
   ChevronRight 
 } from 'lucide-react';
 import { api } from '../services/api';
-import { formatRupiah, formatDate } from '../utils/formatters';
+import { formatRupiah, formatDate, formatTime, emitFinanceUpdated } from '../utils/formatters';
 import { useDialog } from '../context/DialogContext';
 import TransactionModal from '../components/TransactionModal';
 
@@ -60,9 +61,13 @@ export default function Transactions() {
       const list = Array.isArray(txRes) ? txRes : (txRes.transactions || []);
       const totalCount = Array.isArray(txRes) ? txRes.length : (txRes.total ?? list.length);
 
+      const sortedWallets = [...walletList].sort(
+        (a, b) => (b.is_default ? 1 : 0) - (a.is_default ? 1 : 0) || a.name.localeCompare(b.name)
+      );
+
       setTransactions(list);
       setTotal(totalCount);
-      setWallets(walletList);
+      setWallets(sortedWallets);
       setCategories(catList);
     } catch (err) {
       console.error(err);
@@ -104,6 +109,7 @@ export default function Transactions() {
     try {
       await api.deleteTransaction(id);
       showToast('Transaksi berhasil dihapus', 'success');
+      emitFinanceUpdated();
       fetchData();
     } catch (err) {
       showToast(err.message, 'error');
@@ -179,7 +185,7 @@ export default function Transactions() {
             <option value="">Semua Dompet</option>
             {wallets.map((w) => (
               <option key={w.id} value={w.id}>
-                {w.name}
+                {w.is_default ? '★ ' : ''}{w.name}{w.is_default ? ' (Default)' : ''}
               </option>
             ))}
           </select>
@@ -252,8 +258,8 @@ export default function Transactions() {
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-50/80 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                   <tr>
-                    <th className="px-6 py-4">Tanggal</th>
-                    <th className="px-6 py-4">Kategori & Catatan</th>
+                    <th className="px-6 py-4">Tanggal &amp; Jam</th>
+                    <th className="px-6 py-4">Kategori &amp; Catatan</th>
                     <th className="px-6 py-4">Dompet</th>
                     <th className="px-6 py-4">Sumber</th>
                     <th className="px-6 py-4 text-right">Nominal</th>
@@ -261,10 +267,18 @@ export default function Transactions() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {transactions.map((tx) => (
+                  {transactions.map((tx) => {
+                    const timeLabel = formatTime(tx.transaction_time);
+                    return (
                     <tr key={tx.id} className="hover:bg-slate-50/70 transition-colors">
                       <td className="px-6 py-4 text-xs text-slate-500 whitespace-nowrap">
-                        {formatDate(tx.transaction_date)}
+                        <div className="font-medium text-slate-700">{formatDate(tx.transaction_date)}</div>
+                        {timeLabel && (
+                          <div className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5 tabular-nums">
+                            <Clock className="w-3 h-3 text-slate-400" />
+                            <span>{timeLabel}</span>
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
@@ -339,7 +353,8 @@ export default function Transactions() {
                         </button>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -409,10 +424,13 @@ export default function Transactions() {
                   </div>
 
                   <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="font-semibold text-slate-700">{tx.wallet_name}</span>
                       <span className="text-slate-300">•</span>
-                      <span>{formatDate(tx.transaction_date)}</span>
+                      <span>
+                        {formatDate(tx.transaction_date)}
+                        {formatTime(tx.transaction_time) ? `, ${formatTime(tx.transaction_time)}` : ''}
+                      </span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-600 inline-flex items-center gap-1 font-medium">
